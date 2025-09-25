@@ -929,7 +929,7 @@ def main():
             elif fear_value >= 75:
                 delta_color = "normal"  # Verde - extrema codicia es señal de alerta
             else:
-                delta_color = None
+                delta_color = "off"
             
             st.metric(
                 "😨 Fear & Greed",
