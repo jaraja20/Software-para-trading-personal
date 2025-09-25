@@ -9,3 +9,11 @@ anthropic==0.7.7
 yfinance==0.2.22
 numpy==1.25.2
 python-dotenv==1.0.0
+
+#extensiones necesarias
+#- Python (Microsoft) 
+#- Python Debugger
+#- Pylance (IntelliSense avanzado)
+#- Python Docstring Generator
+#- autoDocstring
+#- Python Indent
