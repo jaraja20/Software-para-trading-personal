@@ -66,11 +66,15 @@ class AIProviderManager:
         if not provider:
             available = ", ".join(self.get_available_providers())
             return f"❌ Provider '{provider_name}' no disponible. Providers disponibles: {available}"
-        
+        self.logger.debug(f"[{provider_name}] Analyzing message: {message}")
+        self.logger.debug(f"[{provider_name}] Market data keys: {list(market_data.keys())}")
+  
         try:
+            result = provider.analyze_market(message, market_data)
+            self.logger.debug(f"[{provider_name}] Response length: {len(result) if result else 0}")
             return provider.analyze_market(message, market_data)
         except Exception as e:
-            self.logger.error(f"Error en análisis con {provider_name}: {e}")
+            self.logger.exception(f"❌ Exception in provider {provider_name}")
             return provider.handle_error(e, "Analysis Error")
     
     def analyze_with_default(self, message: str, market_data: Dict[str, Any]) -> str:

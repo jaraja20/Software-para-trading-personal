@@ -19,7 +19,7 @@ from config import Config, AIConfig, TradingConfig, validate_config
 from ai_providers import analyze_market, get_available_ais, get_ai_comparison, get_ai_stats
 
 # Configurar logging
-logging.basicConfig(level=logging.INFO if Config.DEBUG else logging.WARNING)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Configuración de la página
@@ -241,40 +241,50 @@ def get_market_data():
 
 @st.cache_data(ttl=Config.CHART_CACHE_TTL, show_spinner=False)
 def get_candlestick_data(symbol='BTC-USD', timeframe='1h', days=30):
-    """Obtiene datos de velas para el gráfico usando yfinance"""
+    """Obtiene datos de velas para el gráfico usando Binance API"""
     try:
-        ticker = yf.Ticker(symbol)
-        
-        # Mapear timeframes de Streamlit a yfinance
+        # Mapeo de símbolos de tu app (BTC-USD → BTCUSDT)
+        symbol_map = {
+            'BTC-USD': 'BTCUSDT',
+            'ETH-USD': 'ETHUSDT',
+            'SOL-USD': 'SOLUSDT',
+            'ADA-USD': 'ADAUSDT',
+            'MATIC-USD': 'MATICUSDT',
+            'AVAX-USD': 'AVAXUSDT'
+        }
+        binance_symbol = symbol_map.get(symbol, 'BTCUSDT')
+
+        # Mapear timeframe de tu app a Binance
         interval_map = {
             '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1h',
-            '4h': '1h', '1d': '1d', '1w': '1wk', '1M': '1mo'
+            '4h': '4h', '1d': '1d', '1w': '1w', '1M': '1M'
         }
-        
         interval = interval_map.get(timeframe, '1h')
-        
-        # Ajustar período según timeframe
-        if timeframe in ['5m', '15m', '30m']:
-            period = "7d"  # Máximo para intervalos pequeños
-        elif timeframe == '1h':
-            period = "30d"
-        elif timeframe == '4h':
-            period = "60d" 
-        else:
-            period = "1y"
-        
-        data = ticker.history(period=period, interval=interval)
-        
-        if data.empty:
-            # Generar datos simulados realistas
-            logger.info(f"Generando datos simulados para {symbol}")
-            return generate_realistic_ohlc_data(symbol, timeframe, days)
-        
-        return data
-        
+
+        # Llamada a la API de Binance
+        url = f"https://api.binance.com/api/v3/klines"
+        limit = min(days * 24, 1000)  # Binance máximo 1000 velas
+        params = {"symbol": binance_symbol, "interval": interval, "limit": limit}
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        # Convertir a DataFrame
+        df = pd.DataFrame(data, columns=[
+            "OpenTime", "Open", "High", "Low", "Close", "Volume",
+            "CloseTime", "QuoteAssetVolume", "Trades",
+            "TakerBuyBase", "TakerBuyQuote", "Ignore"
+        ])
+        df["OpenTime"] = pd.to_datetime(df["OpenTime"], unit="ms")
+        df.set_index("OpenTime", inplace=True)
+        df = df.astype(float)
+
+        return df[["Open", "High", "Low", "Close", "Volume"]]
+
     except Exception as e:
-        logger.warning(f"Error con yfinance para {symbol}: {e}")
-        return generate_realistic_ohlc_data(symbol, timeframe, days)
+        logger.error(f"Error obteniendo datos de Binance para {symbol}: {e}")
+        return pd.DataFrame()  # En vez de simular datos, devolvemos vacío
+
 
 def generate_realistic_ohlc_data(symbol, timeframe, days):
     """Genera datos OHLC realistas para demo"""
