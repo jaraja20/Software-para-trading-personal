@@ -31,6 +31,17 @@ class Config:
         'Avalanche': 'AVAX-USD'
     }
     
+    MARKET_TYPES = ['spot', 'futures']
+    
+    DEFAULT_SYMBOLS_FUTURES = {
+        'Bitcoin Futures': 'BTCUSDT',
+        'Ethereum Futures': 'ETHUSDT',
+        'Solana Futures': 'SOLUSDT',
+        'Cardano Futures': 'ADAUSDT',
+        'Polygon Futures': 'MATICUSDT',
+        'Avalanche Futures': 'AVAXUSDT'
+    }
+    
     TIMEFRAMES = ['5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M']
     DEFAULT_TIMEFRAME = '1h'
     
@@ -56,6 +67,9 @@ class AIConfig:
     # Google Gemini
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
     GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-pro')
+    
+    # NewsAPI para análisis de sentiment
+    NEWS_API_KEY = os.getenv('NEWS_API_KEY', '2208cef67ba24d11a2d48ef4789241d1')
     
     # Configuración general de IA
     DEFAULT_AI_PROVIDER = os.getenv('DEFAULT_AI_PROVIDER', 'gemini')
@@ -101,7 +115,8 @@ def is_api_key_valid(api_key, provider_type):
         'sk-your-openai-key-here',
         'sk-ant-your-claude-key-here', 
         'your-gemini-key-here',
-        'your-google-key-here'
+        'your-google-key-here',
+        'your-newsapi-key-here'
     ]
     
     if api_key in placeholder_keys:
@@ -115,6 +130,9 @@ def is_api_key_valid(api_key, provider_type):
     elif provider_type == 'gemini':
         # Las keys de Gemini empiezan con "AIza" y son largas
         return api_key.startswith('AIza') and len(api_key) > 35
+    elif provider_type == 'newsapi':
+        # NewsAPI keys son hexadecimales de 32 caracteres
+        return len(api_key) == 32 and all(c in '0123456789abcdef' for c in api_key.lower())
     
     return True
 
@@ -128,6 +146,7 @@ def get_available_ai_providers():
         print(f"OPENAI_API_KEY: {AIConfig.OPENAI_API_KEY[:10] if AIConfig.OPENAI_API_KEY else 'None'}...")
         print(f"ANTHROPIC_API_KEY: {AIConfig.ANTHROPIC_API_KEY[:15] if AIConfig.ANTHROPIC_API_KEY else 'None'}...")
         print(f"GEMINI_API_KEY: {AIConfig.GEMINI_API_KEY[:10] if AIConfig.GEMINI_API_KEY else 'None'}...")
+        print(f"NEWS_API_KEY: {AIConfig.NEWS_API_KEY[:10] if AIConfig.NEWS_API_KEY else 'None'}...")
     
     # Verificar OpenAI
     if is_api_key_valid(AIConfig.OPENAI_API_KEY, 'openai'):
@@ -178,6 +197,10 @@ def validate_config():
     if AIConfig.DEFAULT_AI_PROVIDER not in available_providers and available_providers:
         errors.append(f"⚠️ Provider por defecto '{AIConfig.DEFAULT_AI_PROVIDER}' no está disponible. Providers disponibles: {available_providers}")
     
+    # Validar NewsAPI (opcional pero recomendado)
+    if not is_api_key_valid(AIConfig.NEWS_API_KEY, 'newsapi'):
+        errors.append("⚠️ NewsAPI key no válida. El análisis de sentiment será limitado.")
+    
     return errors
 
 def get_symbol_display_name(symbol):
@@ -217,6 +240,12 @@ def get_provider_status():
         'name': 'Gemini (Google)'
     }
     
+    # NewsAPI
+    status['newsapi'] = {
+        'available': is_api_key_valid(AIConfig.NEWS_API_KEY, 'newsapi'),
+        'name': 'NewsAPI (Sentiment Analysis)'
+    }
+    
     return status
 
 def debug_ai_config():
@@ -225,6 +254,7 @@ def debug_ai_config():
     print(f"OPENAI_API_KEY: '{AIConfig.OPENAI_API_KEY}'")
     print(f"ANTHROPIC_API_KEY: '{AIConfig.ANTHROPIC_API_KEY}'")
     print(f"GEMINI_API_KEY: '{AIConfig.GEMINI_API_KEY}'")
+    print(f"NEWS_API_KEY: '{AIConfig.NEWS_API_KEY}'")
     print(f"DEFAULT_AI_PROVIDER: {AIConfig.DEFAULT_AI_PROVIDER}")
     
     print("\n--- VALIDACIONES INDIVIDUALES ---")
@@ -236,6 +266,8 @@ def debug_ai_config():
         print(f"Gemini válida: {is_api_key_valid(AIConfig.GEMINI_API_KEY, 'gemini')}")
         print(f"Gemini starts with AIza: {AIConfig.GEMINI_API_KEY.startswith('AIza') if AIConfig.GEMINI_API_KEY else False}")
         print(f"Gemini length: {len(AIConfig.GEMINI_API_KEY) if AIConfig.GEMINI_API_KEY else 0}")
+    if AIConfig.NEWS_API_KEY:
+        print(f"NewsAPI válida: {is_api_key_valid(AIConfig.NEWS_API_KEY, 'newsapi')}")
     
     print(f"\nProviders disponibles: {get_available_ai_providers()}")
     print("========================")

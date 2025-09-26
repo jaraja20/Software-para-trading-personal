@@ -1,10 +1,11 @@
 """
-Trading Assistant Pro - Aplicación Principal
-Análisis avanzado con múltiples providers de IA para trading de criptomonedas
-VERSIÓN COMPATIBLE CON PYTHON 3.8
+Trading Assistant Pro - Aplicación Principal ACTUALIZADA
+Análisis avanzado con múltiples providers de IA + Utils integrados
+VERSIÓN COMPATIBLE CON PYTHON 3.8 + Indicadores Técnicos + Sentiment Analysis
 """
 
 import streamlit as st
+import html
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
@@ -20,12 +21,17 @@ from typing import Dict, List, Optional, Any
 try:
     from config import Config, AIConfig, TradingConfig, validate_config
     from ai_providers import analyze_market, get_available_ais, get_ai_comparison, get_ai_stats
+    from utils.technical_indicators import TechnicalIndicators, MarketAnalyzer, format_analysis_for_ai
+    from utils.news_sentiment import NewsAnalyzer, SentimentAggregator, format_sentiment_for_ai
     config_loaded = True
+    utils_loaded = True
 except ImportError as e:
     config_loaded = False
+    utils_loaded = False
     import_error = str(e)
 except Exception as e:
     config_loaded = False
+    utils_loaded = False
     import_error = str(e)
 
 # Configurar logging
@@ -55,8 +61,11 @@ if sys.version_info < (3, 9):
 # Mostrar errores de importación si los hay
 if not config_loaded:
     st.error(f"❌ Error importando configuración: {import_error}")
+    
+if not utils_loaded:
+    st.warning("⚠️ Los módulos de análisis técnico y sentiment no están disponibles. Funcionalidad limitada.")
 
-# CSS personalizado para tema dark y estilo profesional
+# CSS personalizado mejorado con nuevos estilos para indicadores técnicos
 st.markdown("""
 <style>
     .stApp {
@@ -143,6 +152,38 @@ st.markdown("""
     .status-online { background-color: #10b981; }
     .status-offline { background-color: #ef4444; }
     
+    /* Nuevos estilos para análisis técnico */
+    .technical-indicator {
+        background: #1e293b;
+        padding: 0.8rem;
+        border-radius: 8px;
+        border-left: 3px solid #3b82f6;
+        margin: 0.5rem 0;
+    }
+    .sentiment-card {
+        background: #1e293b;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #334155;
+        margin: 0.5rem 0;
+    }
+    .signal-bullish {
+        border-left: 4px solid #10b981;
+    }
+    .signal-bearish {
+        border-left: 4px solid #ef4444;
+    }
+    .signal-neutral {
+        border-left: 4px solid #6b7280;
+    }
+    .news-headline {
+        background: #374151;
+        padding: 0.5rem;
+        border-radius: 6px;
+        margin: 0.3rem 0;
+        font-size: 0.9rem;
+    }
+    
     @keyframes pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.6; }
@@ -159,24 +200,72 @@ st.markdown("""
         background: #475569;
         border-radius: 3px;
     }
+    
+    /* Chat container con altura fija */
+    .chat-container {
+        height: 500px;
+        max-height: 500px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 1rem;
+        background-color: #1e293b;
+        border-radius: 8px;
+        border: 1px solid #334155;
+        margin-bottom: 1rem;
+        word-wrap: break-word;
+        white-space: pre-wrap;
+    }
+    .chat-message {
+        padding: 1rem;
+        border-radius: 12px;
+        margin: 0.5rem 0;
+        word-wrap: break-word;
+        white-space: pre-wrap;
+        max-width: 100%;
+        overflow-wrap: break-word;
+        hyphens: auto;
+    }
+    .message-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 100%;
+    }  
+    .provider-info {
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+    color: #9ca3af;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 def initialize_session_state():
-    """Inicializa el estado de la sesión"""
+    """Inicializa el estado de la sesión con nuevas variables para utils"""
     defaults = {
         'chat_history': [
             {
                 "role": "ai", 
-                "message": "👋 **¡Bienvenido a Trading Assistant Pro!**\n\nSoy tu asistente especializado en criptomonedas con acceso a múltiples IAs:\n\n• **Claude** - Análisis profundo y contextual\n• **GPT-4** - Versatilidad y creatividad\n• **Gemini** - Análisis multimodal rápido\n\n¿Qué te gustaría analizar hoy?",
-                "provider": "system"
+                "message": (
+                "👋 **¡Bienvenido a Trading Assistant Pro!**\n\n"       
+                "Soy tu asistente especializado en criptomonedas con:\n\n"
+                "• **Claude, GPT-4 & Gemini** - Múltiples IAs especializadas\n"
+                "• **Análisis técnico avanzado** - RSI, MACD, Bollinger Bands\n"
+                "• **Análisis de sentiment** - Noticias y Fear & Greed\n"
+                "• **Gráficos profesionales** - Datos en tiempo real\n\n"
+                "¿Qué te gustaría analizar hoy?"
+               
+                ),   
+                 "provider": "system"
             }
         ],
         'current_symbol': 'BTC-USD',
         'current_timeframe': '1h',
         'selected_ai': None,
         'show_ai_comparison': False,
+        'show_technical_analysis': True,
+        'show_sentiment_analysis': True,
         'chart_data_cache': {},
+        'technical_analysis_cache': {},
+        'sentiment_cache': {},
         'last_refresh': datetime.now()
     }
     
@@ -213,10 +302,6 @@ def validate_and_show_config():
             pip install anthropic==0.3.11
             pip install google-generativeai==0.3.1
             ```
-            
-            **O actualiza Python a 3.10+ (recomendado):**
-            - Descarga desde https://python.org
-            - Reinstala las librerías con versiones más recientes
             """)
         return False
     
@@ -232,20 +317,20 @@ def validate_and_show_config():
                 Para habilitar funcionalidad completa de IA, agrega al menos una API key en tu archivo `.env`:
                 
                 ```bash
-                # OpenAI (GPT-4) - Versátil y balanceado
-                OPENAI_API_KEY=sk-your-openai-key-here
-                
                 # Anthropic (Claude) - Análisis profundo  
                 ANTHROPIC_API_KEY=sk-ant-your-claude-key-here
                 
                 # Google (Gemini) - Rápido y económico
                 GEMINI_API_KEY=your-gemini-key-here
+                
+                # OpenAI (GPT-4) - Versátil y balanceado
+                OPENAI_API_KEY=sk-your-openai-key-here
                 ```
                 
                 **Dónde obtener las keys:**
-                - OpenAI: https://platform.openai.com/api-keys
                 - Claude: https://console.anthropic.com/
                 - Gemini: https://ai.google.dev/
+                - OpenAI: https://platform.openai.com/api-keys
                 """)
             
             return False
@@ -254,7 +339,7 @@ def validate_and_show_config():
         st.error(f"❌ Error validando configuración: {e}")
         return False
 
-# Funciones de datos del mercado con manejo mejorado de errores
+# Funciones de datos del mercado MEJORADAS
 @st.cache_data(ttl=30, show_spinner=False)
 def get_crypto_prices():
     """Obtiene precios actuales de las principales cryptos"""
@@ -297,10 +382,10 @@ def get_market_data():
         return None
 
 @st.cache_data(ttl=60, show_spinner=False)
-def get_candlestick_data(symbol='BTC-USD', timeframe='1h', days=30):
-    """Obtiene datos de velas para el gráfico usando Binance API"""
+def get_candlestick_data(symbol='BTC-USD', timeframe='1h', days=180, market_type='spot'):
+    """Obtiene datos de velas para el gráfico usando Binance API (Spot o Futuros)"""
     try:
-        # Mapeo de símbolos
+        # Mapeo de símbolos (Spot)
         symbol_map = {
             'BTC-USD': 'BTCUSDT',
             'ETH-USD': 'ETHUSDT',
@@ -318,15 +403,20 @@ def get_candlestick_data(symbol='BTC-USD', timeframe='1h', days=30):
         }
         interval = interval_map.get(timeframe, '1h')
 
-        # Llamada a la API de Binance
-        url = "https://api.binance.com/api/v3/klines"
+        # Endpoint según mercado
+        if market_type == 'spot':
+            base_url = "https://api.binance.com/api/v3/klines"
+        else:  # futures
+            base_url = "https://fapi.binance.com/fapi/v1/klines"
+
+        # Llamada a la API
         limit = min(days * 24, 1000)
         params = {"symbol": binance_symbol, "interval": interval, "limit": limit}
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(base_url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
 
-        # Convertir a DataFrame
+        # Conversión a DataFrame (igual que ya lo tenías)
         df = pd.DataFrame(data, columns=[
             "OpenTime", "Open", "High", "Low", "Close", "Volume",
             "CloseTime", "QuoteAssetVolume", "Trades",
@@ -334,17 +424,16 @@ def get_candlestick_data(symbol='BTC-USD', timeframe='1h', days=30):
         ])
         df["OpenTime"] = pd.to_datetime(df["OpenTime"], unit="ms")
         df.set_index("OpenTime", inplace=True)
-        
-        # Convertir a float de manera compatible con Python 3.8
+
         for col in ["Open", "High", "Low", "Close", "Volume"]:
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
         return df[["Open", "High", "Low", "Close", "Volume"]]
 
     except Exception as e:
-        logger.error(f"Error obteniendo datos de Binance para {symbol}: {e}")
-        # Generar datos de demostración en caso de error
+        logger.error(f"Error obteniendo datos de Binance ({market_type}) para {symbol}: {e}")
         return generate_demo_data(symbol, timeframe, days)
+
 
 def generate_demo_data(symbol, timeframe, days):
     """Genera datos de demostración en caso de que falle la API"""
@@ -388,7 +477,7 @@ def generate_demo_data(symbol, timeframe, days):
         
         for ret in returns:
             new_price = prices[-1] * (1 + ret)
-            new_price = max(new_price, prices[-1] * 0.95)  # Limitar pérdidas
+            new_price = max(new_price, prices[-1] * 0.95)
             prices.append(new_price)
         
         prices = prices[1:]
@@ -420,19 +509,60 @@ def generate_demo_data(symbol, timeframe, days):
         logger.error(f"Error generando datos demo: {e}")
         return pd.DataFrame()
 
-def create_candlestick_chart(data, symbol, timeframe):
-    """Crea gráfico de velas profesional con Plotly"""
+# NUEVA FUNCIÓN: Análisis técnico integrado
+@st.cache_data(ttl=120, show_spinner=False)
+def get_technical_analysis(symbol, chart_data):
+    """Obtiene análisis técnico completo usando los utils"""
+    if not utils_loaded or chart_data.empty:
+        return None
+    
+    try:
+        analyzer = MarketAnalyzer()
+        analysis = analyzer.comprehensive_analysis(chart_data)
+        
+        if 'error' not in analysis:
+            # Generar señales
+            signals = analyzer.generate_signals(analysis)
+            analysis['signals'] = signals
+        
+        return analysis
+    except Exception as e:
+        logger.error(f"Error en análisis técnico: {e}")
+        return None
+
+# NUEVA FUNCIÓN: Análisis de sentiment integrado
+@st.cache_data(ttl=600, show_spinner=False)  # Cache por 10 minutos
+def get_sentiment_analysis(symbol):
+    """Obtiene análisis de sentiment usando los utils"""
+    if not utils_loaded:
+        return None
+    
+    try:
+        # Configurar NewsAnalyzer (sin API key por ahora, usa fuentes gratuitas)
+        news_analyzer = NewsAnalyzer(news_api_key=AIConfig.NEWS_API_KEY)
+        sentiment_aggregator = SentimentAggregator()
+        
+        # Obtener análisis de sentiment general
+        sentiment_data = sentiment_aggregator.get_market_sentiment(news_analyzer)
+        
+        return sentiment_data
+    except Exception as e:
+        logger.error(f"Error en análisis de sentiment: {e}")
+        return None
+
+def create_candlestick_chart(data, symbol, timeframe, technical_analysis=None):
+    """Crea gráfico de velas profesional con indicadores técnicos integrados"""
     if data.empty:
         return None
     
     try:
-        # Crear subplots: precio (80%) y volumen (20%)
+        # Crear subplots: precio (70%), volumen (15%), RSI (15%)
         fig = make_subplots(
-            rows=2, cols=1,
+            rows=3, cols=1,
             shared_xaxes=True,
             vertical_spacing=0.05,
-            subplot_titles=(f'{symbol} - {timeframe.upper()}', 'Volumen'),
-            row_heights=[0.8, 0.2]
+            subplot_titles=(f'{symbol} - {timeframe.upper()}', 'Volumen', 'RSI'),
+            row_heights=[0.7, 0.15, 0.15]
         )
         
         # Gráfico de velas principal
@@ -452,7 +582,7 @@ def create_candlestick_chart(data, symbol, timeframe):
             row=1, col=1
         )
         
-        # Medias móviles si hay suficientes datos
+        # Medias móviles
         if len(data) >= 20:
             data_copy = data.copy()
             data_copy['MA20'] = data_copy['Close'].rolling(window=20).mean()
@@ -468,7 +598,6 @@ def create_candlestick_chart(data, symbol, timeframe):
             )
         
         if len(data) >= 50:
-            data_copy = data.copy()
             data_copy['MA50'] = data_copy['Close'].rolling(window=50).mean()
             fig.add_trace(
                 go.Scatter(
@@ -480,6 +609,35 @@ def create_candlestick_chart(data, symbol, timeframe):
                 ),
                 row=1, col=1
             )
+        
+        # Bollinger Bands si tenemos análisis técnico
+        if technical_analysis and utils_loaded and 'bollinger' in technical_analysis:
+            try:
+                bb = technical_analysis['bollinger']
+                fig.add_trace(
+                    go.Scatter(
+                        x=data.index,
+                        y=bb['upper'],
+                        name='BB Upper',
+                        line=dict(color='#6b7280', width=1, dash='dash'),
+                        opacity=0.6
+                    ),
+                    row=1, col=1
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=data.index,
+                        y=bb['lower'],
+                        name='BB Lower',
+                        line=dict(color='#6b7280', width=1, dash='dash'),
+                        fill='tonexty',
+                        fillcolor='rgba(107, 114, 128, 0.1)',
+                        opacity=0.6
+                    ),
+                    row=1, col=1
+                )
+            except Exception as e:
+                logger.warning(f"Error añadiendo Bollinger Bands: {e}")
         
         # Gráfico de volumen con colores
         colors = ['#10b981' if data['Close'].iloc[i] >= data['Open'].iloc[i] 
@@ -496,51 +654,122 @@ def create_candlestick_chart(data, symbol, timeframe):
             row=2, col=1
         )
         
+        # RSI si tenemos análisis técnico
+        if technical_analysis and utils_loaded and len(data) >= 14:
+            try:
+                indicators = TechnicalIndicators()
+                rsi_values = indicators.rsi(data['Close'])
+                
+                fig.add_trace(
+                    go.Scatter(
+                        x=data.index,
+                        y=rsi_values,
+                        name="RSI",
+                        line=dict(color='#8b5cf6', width=2)
+                    ),
+                    row=3, col=1
+                )
+                
+                # Líneas de referencia RSI
+                fig.add_hline(y=70, line=dict(color='#ef4444', dash='dash'), row=3, col=1)
+                fig.add_hline(y=30, line=dict(color='#10b981', dash='dash'), row=3, col=1)
+                fig.add_hline(y=50, line=dict(color='#6b7280', dash='dot'), row=3, col=1)
+            except Exception as e:
+                logger.warning(f"Error añadiendo RSI: {e}")
+        
         # Layout profesional
         fig.update_layout(
-            title={
-                'text': f"<b>{symbol}</b> - Análisis Técnico [{timeframe.upper()}]",
-                'x': 0.5,
-                'font': {'size': 20, 'color': '#f8fafc'}
-            },
-            template="plotly_dark",
-            height=650,
-            showlegend=True,
-            legend=dict(
-                yanchor="top",
-                y=0.99,
-                xanchor="left", 
-                x=0.01,
-                bgcolor="rgba(30, 41, 59, 0.8)"
-            ),
-            xaxis_rangeslider_visible=False,
-            plot_bgcolor='#0f172a',
-            paper_bgcolor='#0f172a',
-            font=dict(color='#f8fafc'),
-            margin=dict(l=60, r=60, t=80, b=60)
+    title={
+        'text': f"<b>{symbol}</b> - Análisis Técnico Completo [{timeframe.upper()}]",
+        'x': 0.5,
+        'font': {'size': 20, 'color': '#f8fafc'}
+    },
+    template="plotly_dark",
+    height=750,
+    showlegend=True,
+    legend=dict(
+        yanchor="top",
+        y=0.99,
+        xanchor="left", 
+        x=0.01,
+        bgcolor="rgba(30, 41, 59, 0.8)"
+    ),
+    xaxis_rangeslider_visible=False,
+    plot_bgcolor='#0f172a',
+    paper_bgcolor='#0f172a',
+    font=dict(color='#f8fafc'),
+    margin=dict(l=60, r=60, t=80, b=60),
+    
+    # NUEVAS CONFIGURACIONES AGREGADAS:
+    dragmode='pan',  # Herramienta por defecto: mover (no zoom)
+    
+    # Configuración del eje X mejorada
+    xaxis=dict(
+        rangeslider=dict(visible=False),
+        type="date",
+        range=[data.index[0], data.index[-1]],  # Rango completo de datos
+        rangeselector=dict(
+            buttons=list([
+                dict(count=1, label="1D", step="day", stepmode="backward"),
+                dict(count=7, label="7D", step="day", stepmode="backward"),
+                dict(count=30, label="30D", step="day", stepmode="backward"),
+                dict(count=90, label="3M", step="day", stepmode="backward"),
+                dict(step="all", label="Todo")
+            ]),
+            bgcolor="rgba(30, 41, 59, 0.8)",
+            activecolor="#3b82f6",
+            bordercolor="#334155",
+            borderwidth=1
+        ),
+        showspikes=True,
+        spikecolor="#3b82f6",
+        spikesnap="cursor",
+        spikemode="across"
+    ),
+    
+    # Configuración del eje Y mejorada
+    yaxis=dict(
+        fixedrange=False,  # Permitir zoom vertical
+        showspikes=True,
+        spikecolor="#3b82f6",
+        spikesnap="cursor",
+        spikemode="across"
+    ),
+    
+    # Barra de herramientas mejorada
+    modebar=dict(
+        bgcolor="rgba(30, 41, 59, 0.9)",
+        color="#f8fafc",
+        activecolor="#3b82f6",
+        orientation="h",
+        add=[
+            'pan2d',           # Mover
+            'select2d',        # Seleccionar
+            'lasso2d',         # Lazo
+            'zoomIn2d',        # Zoom in
+            'zoomOut2d',       # Zoom out
+            'autoScale2d',     # Auto escala
+            'resetScale2d',    # Reset zoom (¡BOTÓN DE RESET!)
+            'toggleSpikelines', # Toggle crosshair
+            'hoverCompareCartesian'  # Comparar valores
+        ],
+        remove=['toImage', 'sendDataToCloud']  # Quitar botones innecesarios
+    ),
+    
+    # Configuraciones adicionales para mejor interactividad
+    hovermode='x unified',  # Hover unificado en eje X
+    hoverdistance=100,      # Distancia de activación del hover
+    spikedistance=1000,     # Distancia de activación de spikes
+    
+    # Configuración de selección
+    selectdirection='h'
         )
         
         # Personalizar ejes
         fig.update_yaxes(title_text="Precio (USD)", row=1, col=1, gridcolor='#334155')
         fig.update_yaxes(title_text="Volumen", row=2, col=1, gridcolor='#334155')
+        fig.update_yaxes(title_text="RSI", row=3, col=1, gridcolor='#334155', range=[0, 100])
         fig.update_xaxes(gridcolor='#334155')
-        
-        # Añadir anotación de cambio de precio
-        if len(data) > 1:
-            price_change = ((data['Close'].iloc[-1] / data['Close'].iloc[0]) - 1) * 100
-            color = '#10b981' if price_change > 0 else '#ef4444'
-            
-            fig.add_annotation(
-                x=data.index[-1], 
-                y=data['Close'].iloc[-1],
-                text=f"{price_change:+.1f}%",
-                showarrow=True,
-                arrowhead=2,
-                arrowcolor=color,
-                font=dict(color=color, size=12),
-                bgcolor="rgba(15, 23, 42, 0.8)",
-                bordercolor=color
-            )
         
         return fig
         
@@ -548,18 +777,31 @@ def create_candlestick_chart(data, symbol, timeframe):
         logger.error(f"Error creando gráfico: {e}")
         return None
 
-def create_market_summary(prices_data, fear_greed_data, market_data):
-    """Crea resumen del mercado para contexto de IA"""
+def create_market_summary_enhanced(prices_data, fear_greed_data, market_data, technical_analysis=None, sentiment_data=None, symbol=None):
+    """Crea resumen MEJORADO del mercado para contexto de IA con análisis técnico y sentiment"""
     summary = {
         'prices': prices_data,
         'fear_greed': fear_greed_data,
         'global_data': market_data,
         'timestamp': datetime.now().isoformat()
     }
+    
+    # Agregar análisis técnico si está disponible
+    if technical_analysis and utils_loaded:
+        summary['technical_analysis'] = technical_analysis
+    
+    # Agregar análisis de sentiment si está disponible
+    if sentiment_data and utils_loaded:
+        summary['sentiment_analysis'] = sentiment_data
+    
+    # Agregar símbolo actual
+    if symbol:
+        summary['current_symbol'] = symbol
+    
     return summary
 
 def display_sidebar():
-    """Renderiza la sidebar con controles y configuración"""
+    """Renderiza la sidebar con controles mejorados"""
     st.sidebar.title("🎛️ Panel de Control")
     
     # Información de estado
@@ -572,24 +814,26 @@ def display_sidebar():
             status_color = "status-offline"
             status_text = "Config. no cargada"
         
+        utils_status = "✅ Activos" if utils_loaded else "❌ No disponibles"
+        
         st.sidebar.markdown(f"""
         <div class="sidebar-section">
             <h4>📡 Estado del Sistema</h4>
             <p><span class="status-indicator {status_color}"></span>{status_text}</p>
+            <p><small>📊 Utils: {utils_status}</small></p>
             <small>Última actualización: {datetime.now().strftime('%H:%M:%S')}</small>
         </div>
         """, unsafe_allow_html=True)
     except Exception as e:
         st.sidebar.error(f"Error en estado: {e}")
     
-    # Selector de IA (solo si la configuración está cargada)
+    # Selector de IA
     if config_loaded:
         try:
             available_ais = get_available_ais()
             if available_ais:
                 st.sidebar.markdown("### 🤖 Configuración de IA")
                 
-                # Mapeo de nombres técnicos a nombres amigables
                 ai_display_names = {
                     'claude': '🧠 Claude (Análisis profundo)',
                     'openai': '💡 GPT-4 (Versatilidad)', 
@@ -615,8 +859,24 @@ def display_sidebar():
         except Exception as e:
             st.sidebar.error(f"Error configurando IA: {e}")
     
+    # NUEVA SECCIÓN: Configuración de análisis
+    if utils_loaded:
+        st.sidebar.markdown("### 📊 Configuración de Análisis")
+        
+        st.session_state.show_technical_analysis = st.sidebar.checkbox(
+            "🔧 Análisis Técnico Avanzado",
+            value=st.session_state.show_technical_analysis,
+            help="Incluye RSI, MACD, Bollinger Bands, etc."
+        )
+        
+        st.session_state.show_sentiment_analysis = st.sidebar.checkbox(
+            "📰 Análisis de Sentiment",
+            value=st.session_state.show_sentiment_analysis,
+            help="Noticias, Fear & Greed, sentiment del mercado"
+        )
+    
     # Configuración de gráfico
-    st.sidebar.markdown("### 📊 Configuración de Gráfico")
+    st.sidebar.markdown("### 📈 Configuración de Gráfico")
     
     # Selector de criptomoneda
     default_symbols = {
@@ -642,6 +902,13 @@ def display_sidebar():
         '1h': '1 Hora', '4h': '4 Horas', '1d': '1 Día', 
         '1w': '1 Semana', '1M': '1 Mes'
     }
+    
+    market_type = st.sidebar.selectbox(
+    "Tipo de Mercado:",
+    ["Spot", "Futuros"],
+    index=0
+    )
+    st.session_state.market_type = market_type.lower()
     
     selected_timeframe_display = st.sidebar.selectbox(
         "Timeframe:",
@@ -669,6 +936,198 @@ def display_sidebar():
                 {"role": "ai", "message": "👋 Chat reiniciado. ¿En qué puedo ayudarte?", "provider": "system"}
             ]
             st.rerun()
+
+def display_technical_indicators(technical_analysis, symbol):
+    """Muestra panel de indicadores técnicos"""
+    if not technical_analysis or not utils_loaded:
+        return
+    
+    st.markdown(f"### 🔧 Análisis Técnico - {symbol}")
+    
+    try:
+        # Métricas principales en columnas
+        tech_cols = st.columns(5)
+        
+        with tech_cols[0]:
+            rsi = technical_analysis.get('rsi')
+            if rsi:
+                rsi_color = "#ef4444" if rsi > 70 else "#10b981" if rsi < 30 else "#6b7280"
+                rsi_status = "Sobrecompra" if rsi > 70 else "Sobreventa" if rsi < 30 else "Neutral"
+                st.markdown(f"""
+                <div class="technical-indicator">
+                    <strong>RSI (14)</strong><br>
+                    <span style="color: {rsi_color}; font-size: 1.5em;">{rsi:.1f}</span><br>
+                    <small>{rsi_status}</small>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with tech_cols[1]:
+            levels = technical_analysis.get('levels', {})
+            if levels:
+                distance_to_resistance = levels.get('distance_to_resistance', 0)
+                color = "#ef4444" if distance_to_resistance < 5 else "#10b981"
+                st.markdown(f"""
+                <div class="technical-indicator">
+                    <strong>Resistencia</strong><br>
+                    <span style="color: {color}; font-size: 1.2em;">${levels.get('resistance', 0):.2f}</span><br>
+                    <small>{distance_to_resistance:+.1f}%</small>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with tech_cols[2]:
+            if levels:
+                distance_to_support = levels.get('distance_to_support', 0)
+                color = "#10b981" if distance_to_support > 5 else "#ef4444"
+                st.markdown(f"""
+                <div class="technical-indicator">
+                    <strong>Soporte</strong><br>
+                    <span style="color: {color}; font-size: 1.2em;">${levels.get('support', 0):.2f}</span><br>
+                    <small>{distance_to_support:+.1f}%</small>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with tech_cols[3]:
+            atr = technical_analysis.get('atr')
+            if atr:
+                current_price = levels.get('current_price', 1)
+                volatility_percent = (atr / current_price) * 100 if current_price > 0 else 0
+                vol_status = "Alta" if volatility_percent > 3 else "Media" if volatility_percent > 1.5 else "Baja"
+                st.markdown(f"""
+                <div class="technical-indicator">
+                    <strong>ATR (14)</strong><br>
+                    <span style="font-size: 1.2em;">${atr:.2f}</span><br>
+                    <small>Vol: {vol_status}</small>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with tech_cols[4]:
+            trend = technical_analysis.get('trend', {})
+            if trend:
+                overall_trend = "Alcista" if (trend.get('short_term') == 'bullish' and 
+                                             trend.get('medium_term') == 'bullish') else "Bajista" if (
+                                             trend.get('short_term') == 'bearish' and 
+                                             trend.get('medium_term') == 'bearish') else "Mixta"
+                trend_color = "#10b981" if overall_trend == "Alcista" else "#ef4444" if overall_trend == "Bajista" else "#6b7280"
+                
+                st.markdown(f"""
+                <div class="technical-indicator">
+                    <strong>Tendencia</strong><br>
+                    <span style="color: {trend_color}; font-size: 1.2em;">{overall_trend}</span><br>
+                    <small>Momentum: {trend.get('momentum', 'N/A').title()}</small>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # Señales de trading si están disponibles
+        if 'signals' in technical_analysis:
+            signals = technical_analysis['signals']
+            
+            st.markdown("#### 🎯 Señales de Trading")
+            
+            signal_color_map = {
+                'strong_bullish': '#10b981',
+                'bullish': '#34d399', 
+                'neutral': '#6b7280',
+                'bearish': '#f87171',
+                'strong_bearish': '#ef4444'
+            }
+            
+            overall_signal = signals.get('overall', 'neutral')
+            signal_strength = signals.get('strength', 0)
+            signal_color = signal_color_map.get(overall_signal, '#6b7280')
+            
+            signal_class = f"signal-{overall_signal.replace('_', '-')}" if '_' not in overall_signal else "signal-neutral"
+            
+            st.markdown(f"""
+            <div class="sentiment-card {signal_class}">
+                <h4>Señal General: <span style="color: {signal_color}">{overall_signal.replace('_', ' ').title()}</span></h4>
+                <p><strong>Fuerza:</strong> {signal_strength}/100</p>
+                <p><strong>Componentes:</strong></p>
+                <ul>
+            """, unsafe_allow_html=True)
+            
+            for component in signals.get('components', []):
+                st.markdown(f"<li>{component}</li>", unsafe_allow_html=True)
+            
+            st.markdown("</ul></div>", unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"Error mostrando indicadores técnicos: {e}")
+
+def display_sentiment_analysis(sentiment_data):
+    """Muestra panel de análisis de sentiment"""
+    if not sentiment_data or not utils_loaded:
+        return
+    
+    st.markdown("### 📰 Análisis de Sentiment del Mercado")
+    
+    try:
+        # Sentiment agregado
+        aggregated = sentiment_data.get('aggregated', {})
+        if aggregated:
+            sentiment_cols = st.columns(3)
+            
+            with sentiment_cols[0]:
+                sentiment_score = aggregated.get('score', 0)
+                classification = aggregated.get('classification', 'neutral').replace('_', ' ').title()
+                
+                sentiment_color = '#10b981' if sentiment_score > 0.1 else '#ef4444' if sentiment_score < -0.1 else '#6b7280'
+                
+                st.markdown(f"""
+                <div class="sentiment-card">
+                    <h4>Sentiment General</h4>
+                    <p style="color: {sentiment_color}; font-size: 1.5em;">{classification}</p>
+                    <p><strong>Score:</strong> {sentiment_score:.2f}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with sentiment_cols[1]:
+                confidence = aggregated.get('confidence', 'unknown').title()
+                sources_count = aggregated.get('sources_count', 0)
+                
+                st.markdown(f"""
+                <div class="sentiment-card">
+                    <h4>Confiabilidad</h4>
+                    <p style="font-size: 1.5em;">{confidence}</p>
+                    <p><strong>Fuentes:</strong> {sources_count}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with sentiment_cols[2]:
+                # Fear & Greed específico
+                sources = sentiment_data.get('sources', {})
+                if 'fear_greed' in sources:
+                    fg = sources['fear_greed']
+                    fg_value = fg.get('value', 0)
+                    fg_class = fg.get('classification', 'Neutral')
+                    
+                    fg_color = '#ef4444' if fg_value < 40 else '#10b981' if fg_value > 60 else '#6b7280'
+                    
+                    st.markdown(f"""
+                    <div class="sentiment-card">
+                        <h4>Fear & Greed Index</h4>
+                        <p style="color: {fg_color}; font-size: 1.5em;">{fg_value}/100</p>
+                        <p><strong>{fg_class}</strong></p>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        # Noticias recientes si están disponibles
+        news_summary = sentiment_data.get('news_summary', {})
+        if news_summary and 'recent_headlines' in news_summary:
+            st.markdown("#### 📰 Headlines Recientes")
+            
+            for headline in news_summary['recent_headlines'][:5]:
+                sentiment = headline.get('sentiment', 'neutral')
+                sentiment_emoji = "📈" if sentiment == 'positive' else "📉" if sentiment == 'negative' else "➡️"
+                
+                st.markdown(f"""
+                <div class="news-headline">
+                    {sentiment_emoji} <strong>{headline.get('title', '')[:100]}...</strong><br>
+                    <small>Fuente: {headline.get('source', 'N/A')} | Sentiment: {sentiment.title()}</small>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    except Exception as e:
+        st.error(f"Error mostrando análisis de sentiment: {e}")
 
 def display_ai_comparison():
     """Muestra comparación detallada de IAs disponibles"""
@@ -704,7 +1163,7 @@ def display_ai_comparison():
             st.error(f"Error mostrando comparación: {e}")
 
 def main():
-    """Función principal de la aplicación"""
+    """Función principal de la aplicación MEJORADA"""
     
     # Inicializar estado
     initialize_session_state()
@@ -721,10 +1180,12 @@ def main():
     except:
         ai_count = 0
     
+    utils_status = "✅" if utils_loaded else "❌"
+    
     st.markdown(f"""
     <div class="main-header">
         <h1>{app_icon} {app_title}</h1>
-        <small>🤖 {ai_count} IA{'s' if ai_count != 1 else ''} disponible{'s' if ai_count != 1 else ''}</small>
+        <small>🤖 {ai_count} IA{'s' if ai_count != 1 else ''} • 📊 Utils: {utils_status}</small>
     </div>
     """, unsafe_allow_html=True)
     
@@ -786,16 +1247,24 @@ def main():
         # Obtener datos del gráfico
         with st.spinner("📈 Cargando datos del gráfico..."):
             chart_data = get_candlestick_data(
-                st.session_state.current_symbol, 
-                st.session_state.current_timeframe, 
-                days=30
-            )
+            st.session_state.current_symbol, 
+            st.session_state.current_timeframe, 
+            days=180,
+            market_type=st.session_state.get("market_type", "spot")
+        )
+        
+        # Obtener análisis técnico si está habilitado
+        technical_analysis = None
+        if st.session_state.show_technical_analysis and utils_loaded and not chart_data.empty:
+            with st.spinner("🔧 Calculando indicadores técnicos..."):
+                technical_analysis = get_technical_analysis(st.session_state.current_symbol, chart_data)
         
         if not chart_data.empty:
             fig = create_candlestick_chart(
                 chart_data, 
                 st.session_state.current_symbol.replace('-USD', ''),
-                st.session_state.current_timeframe
+                st.session_state.current_timeframe,
+                technical_analysis
             )
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
@@ -835,33 +1304,25 @@ def main():
             st.markdown(f"""
             <div class="ai-provider-card">
                 <strong>IA Activa:</strong> {current_ai_name}<br>
-                <small>💬 {len(st.session_state.chat_history)} mensajes en la sesión</small>
+                <small>💬 {len(st.session_state.chat_history)} mensajes • 🔧 Utils: {'✅' if utils_loaded else '❌'}</small>
             </div>
             """, unsafe_allow_html=True)
         
         # CONTENEDOR DE CHAT CON ALTURA FIJA Y SCROLL
-        st.markdown("""
-        <style>
-        .chat-container {
-            height: 400px;
-            overflow-y: auto;
-            padding: 1rem;
-            background-color: #1e293b;
-            border-radius: 8px;
-            border: 1px solid #334155;
-            margin-bottom: 1rem;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Crear contenedor de chat con altura fija
         chat_html = '<div class="chat-container">'
         
         # Generar HTML para cada mensaje
         for i, chat in enumerate(st.session_state.chat_history):
             if chat["role"] == "ai":
-                provider_info = ""
-                if chat.get("provider") != "system":
+                if chat.get("provider") == "system":
+                    # Mensaje inicial de bienvenida
+                    chat_html += f"""
+                    <div class="chat-message ai-message system-message">
+                        <div class="message-content">{chat["message"]}</div>
+                    </div>
+                    """
+                else:
+                    # Mensaje normal de IA
                     provider_name = chat.get("provider", st.session_state.selected_ai or "IA")
                     ai_names = {
                         'claude': '🧠 Claude',
@@ -869,19 +1330,24 @@ def main():
                         'gemini': '⚡ Gemini'
                     }
                     provider_display = ai_names.get(provider_name, provider_name)
-                    provider_info = f"<small><em>{provider_display}</em></small><br>"
-                
-                chat_html += f"""
-                <div class="chat-message ai-message">
-                    {provider_info}{chat["message"]}
-                </div>
-                """
-            else:
+                    
+                    chat_html += f"""
+                    <div class="chat-message ai-message">
+                        <div class="provider-info"><small><em>{provider_display}</em></small></div>
+                        <div class="message-content">
+                            {chat["message"]}
+                        </div>
+                    </div>
+                    """
+            elif chat["role"] == "user":
+                # Mensajes del usuario
                 chat_html += f"""
                 <div class="chat-message user-message">
-                    {chat["message"]}
+                    <div class="message-content">
+                        {chat["message"]}
+                    </div>
                 </div>
-                """
+            """
         
         chat_html += '</div>'
         
@@ -891,19 +1357,27 @@ def main():
         # Input del chat
         st.markdown("---")
         
-        # Ejemplos de preguntas
-        with st.expander("💡 Ejemplos de consultas"):
-            example_queries = [
-                "Analiza Bitcoin en timeframe 4h",
-                "Puntos de entrada para Ethereum",
-                "Gestión de riesgo para SOL", 
-                "Análisis del mercado crypto general",
-                "Niveles de soporte y resistencia",
-                "Indicadores técnicos actuales"
-            ]
+        # Ejemplos de preguntas MEJORADOS
+        with st.expander("💡 Ejemplos de consultas avanzadas"):
+            if utils_loaded:
+                example_queries = [
+                    "Análisis técnico completo de Bitcoin",
+                    "RSI y MACD actuales de Ethereum", 
+                    "Sentiment del mercado crypto hoy",
+                    "Divergencias en SOL timeframe 4h",
+                    "Señales de Bollinger Bands",
+                    "Análisis de volumen y momentum"
+                ]
+            else:
+                example_queries = [
+                    "Analiza Bitcoin en timeframe 4h",
+                    "Puntos de entrada para Ethereum",
+                    "Gestión de riesgo para SOL",
+                    "Análisis del mercado crypto general"
+                ]
             
             for example in example_queries:
-                if st.button(f"📝 {example}", key=f"example_{example[:10]}", use_container_width=True):
+                if st.button(f"📝 {example}", key=f"example_{example[:15]}", use_container_width=True):
                     # Procesar directamente la consulta
                     if st.session_state.selected_ai and config_loaded:
                         # Agregar mensaje del usuario
@@ -911,9 +1385,18 @@ def main():
                             "role": "user", 
                             "message": example
                         })
+                        st.session_state.pending_user_input = example
+                        # Obtener análisis adicionales si están habilitados
+                        sentiment_data = None
+                        if st.session_state.show_sentiment_analysis and utils_loaded:
+                            sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
                         
-                        # Preparar contexto del mercado
-                        market_summary = create_market_summary(prices_data, fear_greed_data, market_data)
+                        # Preparar contexto del mercado MEJORADO
+                        market_summary = create_market_summary_enhanced(
+                            prices_data, fear_greed_data, market_data, 
+                            technical_analysis, sentiment_data, 
+                            st.session_state.current_symbol
+                        )
                         
                         # Generar respuesta de IA
                         try:
@@ -945,8 +1428,8 @@ def main():
         user_input = st.text_area(
             "Tu consulta:",
             height=100,
-            placeholder="Ej: Analiza Bitcoin, dame puntos de entrada para ETH, qué opinas del mercado...",
-            help="Pregunta sobre análisis técnico, tendencias, gestión de riesgo o estrategias de trading",
+            placeholder="Ej: Análisis técnico completo de BTC, sentiment del mercado, señales RSI...",
+            help="Pregunta sobre análisis técnico, sentiment, noticias, gestión de riesgo o estrategias",
             key="chat_input_field"
         )
         
@@ -961,11 +1444,22 @@ def main():
                     # Agregar mensaje del usuario
                     st.session_state.chat_history.append({
                         "role": "user", 
-                        "message": user_input.strip()
+                        "message": user_input.strip() 
                     })
+                    st.session_state.pending_user_input = user_input.strip()
                     
-                    # Preparar contexto del mercado
-                    market_summary = create_market_summary(prices_data, fear_greed_data, market_data)
+                    # Obtener análisis adicionales si están habilitados
+                    sentiment_data = None
+                    if st.session_state.show_sentiment_analysis and utils_loaded:
+                        with st.spinner("📰 Analizando sentiment..."):
+                            sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
+                    
+                    # Preparar contexto del mercado MEJORADO
+                    market_summary = create_market_summary_enhanced(
+                        prices_data, fear_greed_data, market_data, 
+                        technical_analysis, sentiment_data, 
+                        st.session_state.current_symbol
+                    )
                     
                     # Generar respuesta de IA
                     with st.spinner(f"🤔 {st.session_state.selected_ai.title()} está analizando..."):
@@ -997,6 +1491,18 @@ def main():
                 if len(st.session_state.chat_history) > 1:
                     st.session_state.chat_history.pop()
                     st.rerun()
+    
+    # NUEVA SECCIÓN: Mostrar análisis técnico si está habilitado
+    if st.session_state.show_technical_analysis and technical_analysis and utils_loaded:
+        display_technical_indicators(technical_analysis, st.session_state.current_symbol.replace('-USD', ''))
+    
+    # NUEVA SECCIÓN: Mostrar análisis de sentiment si está habilitado
+    if st.session_state.show_sentiment_analysis and utils_loaded:
+        with st.spinner("📰 Cargando análisis de sentiment..."):
+            sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
+        
+        if sentiment_data:
+            display_sentiment_analysis(sentiment_data)
     
     # Métricas adicionales del mercado
     if market_data and fear_greed_data:
@@ -1069,16 +1575,25 @@ def main():
         except Exception as e:
             st.error(f"Error mostrando métricas globales: {e}")
     
-    # Sección de análisis automático
+    # Sección de análisis automático MEJORADA
     st.markdown("---")
     st.markdown("### 🎯 Análisis Rápido del Mercado")
     
-    analysis_cols = st.columns(3)
+    analysis_cols = st.columns(4)  # Cambiado de 3 a 4 columnas
     
     with analysis_cols[0]:
         if st.button("🚀 Análisis General", use_container_width=True):
             if st.session_state.selected_ai and config_loaded:
-                market_summary = create_market_summary(prices_data, fear_greed_data, market_data)
+                # Obtener análisis adicionales
+                sentiment_data = None
+                if st.session_state.show_sentiment_analysis and utils_loaded:
+                    sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
+                
+                market_summary = create_market_summary_enhanced(
+                    prices_data, fear_greed_data, market_data, 
+                    technical_analysis, sentiment_data, 
+                    st.session_state.current_symbol
+                )
                 
                 # Prompt específico para análisis general
                 general_prompt = f"""Como analista senior, dame un análisis completo del mercado crypto actual.
@@ -1094,6 +1609,9 @@ INCLUIR:
 3. Oportunidades en altcoins principales (ETH, SOL, ADA)
 4. Catalyzadores macro relevantes
 5. Niveles clave a monitorear esta semana
+
+{"6. Indicadores técnicos principales (RSI, MACD)" if technical_analysis else ""}
+{"7. Sentiment de noticias y redes sociales" if sentiment_data else ""}
 
 Respuesta en español, formato markdown, máximo 600 palabras."""
                 
@@ -1125,7 +1643,16 @@ Respuesta en español, formato markdown, máximo 600 palabras."""
     with analysis_cols[1]:
         if st.button("⚖️ Gestión de Riesgo", use_container_width=True):
             if st.session_state.selected_ai and config_loaded:
-                market_summary = create_market_summary(prices_data, fear_greed_data, market_data)
+                # Obtener análisis adicionales
+                sentiment_data = None
+                if st.session_state.show_sentiment_analysis and utils_loaded:
+                    sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
+                
+                market_summary = create_market_summary_enhanced(
+                    prices_data, fear_greed_data, market_data, 
+                    technical_analysis, sentiment_data, 
+                    st.session_state.current_symbol
+                )
                 
                 # Prompt específico para gestión de riesgo
                 risk_prompt = f"""Como especialista en gestión de riesgo para crypto trading, necesito recomendaciones específicas.
@@ -1134,6 +1661,8 @@ CONTEXTO ACTUAL:
 - Volatilidad del mercado: {"Alta" if fear_greed_data and int(fear_greed_data['value']) < 40 else "Media"}
 - Bitcoin dominancia: {market_data['market_cap_percentage']['btc']:.1f}% si market_data else 'N/A'
 - Sentiment general: {fear_greed_data['value_classification'] if fear_greed_data else 'N/A'}
+{"- RSI actual: " + str(round(technical_analysis.get('rsi', 0), 1)) if technical_analysis and technical_analysis.get('rsi') else ""}
+{"- ATR (volatilidad): $" + str(round(technical_analysis.get('atr', 0), 2)) if technical_analysis and technical_analysis.get('atr') else ""}
 
 PROPORCIONAR:
 1. Sizing de posición recomendado para diferentes profiles de riesgo
@@ -1173,9 +1702,32 @@ Incluye ejemplos numéricos prácticos. Respuesta en español, formato markdown.
     with analysis_cols[2]:
         if st.button("🎯 Puntos de Entrada", use_container_width=True):
             if st.session_state.selected_ai and config_loaded:
-                market_summary = create_market_summary(prices_data, fear_greed_data, market_data)
+                # Obtener análisis adicionales
+                sentiment_data = None
+                if st.session_state.show_sentiment_analysis and utils_loaded:
+                    sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
                 
-                # Prompt específico para puntos de entrada
+                market_summary = create_market_summary_enhanced(
+                    prices_data, fear_greed_data, market_data, 
+                    technical_analysis, sentiment_data, 
+                    st.session_state.current_symbol
+                )
+                
+                # Prompt específico para puntos de entrada con análisis técnico
+                technical_info = ""
+                if technical_analysis:
+                    levels = technical_analysis.get('levels', {})
+                    if levels:
+                        technical_info = f"""
+DATOS TÉCNICOS ACTUALES:
+- Precio actual: ${levels.get('current_price', 0):,.2f}
+- Resistencia: ${levels.get('resistance', 0):,.2f} ({levels.get('distance_to_resistance', 0):+.1f}%)
+- Soporte: ${levels.get('support', 0):,.2f} ({levels.get('distance_to_support', 0):+.1f}%)
+- RSI: {technical_analysis.get('rsi', 'N/A')}
+- ATR: ${technical_analysis.get('atr', 0):.2f}
+- Señal general: {technical_analysis.get('signals', {}).get('overall', 'neutral')}
+"""
+
                 entry_prompt = f"""Como trader técnico especializado, identifica puntos de entrada óptimos.
 
 PRECIOS ACTUALES:
@@ -1185,6 +1737,8 @@ PRECIOS ACTUALES:
 
 ASSET PRINCIPAL: {st.session_state.current_symbol.replace('-USD', '')}
 TIMEFRAME: {st.session_state.current_timeframe}
+
+{technical_info}
 
 ANÁLISIS REQUERIDO:
 1. Niveles de entrada específicos para {st.session_state.current_symbol.replace('-USD', '')}
@@ -1222,12 +1776,90 @@ Incluye niveles de precio exactos y condiciones específicas. Respuesta técnica
             else:
                 st.error("❌ No hay IAs disponibles")
     
-    # Footer con información
+    # NUEVA COLUMNA: Análisis de Sentiment
+    with analysis_cols[3]:
+        if st.button("📰 Análisis Sentiment", use_container_width=True):
+            if st.session_state.selected_ai and config_loaded:
+                # Obtener análisis de sentiment
+                sentiment_data = None
+                if utils_loaded:
+                    with st.spinner("📰 Obteniendo noticias..."):
+                        sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
+                
+                market_summary = create_market_summary_enhanced(
+                    prices_data, fear_greed_data, market_data, 
+                    technical_analysis, sentiment_data, 
+                    st.session_state.current_symbol
+                )
+                
+                # Prompt específico para análisis de sentiment
+                sentiment_info = ""
+                if sentiment_data:
+                    aggregated = sentiment_data.get('aggregated', {})
+                    sources = sentiment_data.get('sources', {})
+                    sentiment_info = f"""
+DATOS DE SENTIMENT ACTUALES:
+- Sentiment general: {aggregated.get('classification', 'neutral').replace('_', ' ').title()}
+- Score agregado: {aggregated.get('score', 0):.2f}
+- Confianza: {aggregated.get('confidence', 'unknown').title()}
+- Fear & Greed: {sources.get('fear_greed', {}).get('value', 'N/A')}/100
+- Fuentes analizadas: {aggregated.get('sources_count', 0)}
+"""
+
+                sentiment_prompt = f"""Como especialista en análisis de sentiment para crypto, dame un análisis completo del sentimiento actual del mercado.
+
+{sentiment_info}
+
+CONTEXTO GENERAL:
+- Bitcoin: ${prices_data['bitcoin']['usd']:,.2f} ({prices_data['bitcoin']['usd_24h_change']:+.2f}%)
+- Market Cap: ${market_data['total_market_cap']['usd']/1e12:.2f}T
+- Dominancia BTC: {market_data['market_cap_percentage']['btc']:.1f}%
+
+ANÁLISIS REQUERIDO:
+1. Interpretación del sentiment actual y su impacto
+2. Comparación histórica - ¿estamos en extremos?
+3. Correlación entre sentiment y movimientos de precio
+4. Señales contrarias vs seguimiento de tendencia
+5. Noticias y eventos que influyen el sentiment
+6. Recomendaciones según el sentiment actual
+7. Timing de mercado basado en psicología
+
+{"8. Integración con señales técnicas" if technical_analysis else ""}
+
+Enfócate en cómo usar el sentiment para tomar mejores decisiones de trading. Respuesta práctica y actionable."""
+                
+                with st.spinner("📰 Analizando sentiment del mercado..."):
+                    try:
+                        analysis = analyze_market(
+                            sentiment_prompt,
+                            market_summary,
+                            provider=st.session_state.selected_ai
+                        )
+                        
+                        st.session_state.chat_history.append({
+                            "role": "user",
+                            "message": "📰 Análisis de Sentiment del Mercado"
+                        })
+                        
+                        st.session_state.chat_history.append({
+                            "role": "ai",
+                            "message": analysis,
+                            "provider": st.session_state.selected_ai
+                        })
+                    except Exception as e:
+                        st.error(f"Error en análisis de sentiment: {e}")
+                        
+                st.rerun()
+            else:
+                st.error("❌ No hay IAs disponibles")
+    
+    # Footer con información actualizada
     st.markdown("---")
-    st.markdown("""
+    st.markdown(f"""
     <div style='text-align: center; color: #64748b; padding: 1.5rem;'>
-        <strong>📈 Trading Assistant Pro</strong> • Desarrollado con Python & Streamlit<br>
-        🤖 Powered by Claude, GPT-4 & Gemini • 📊 Datos en tiempo real<br>
+        <strong>📈 Trading Assistant Pro v2.1</strong> • Desarrollado con Python & Streamlit<br>
+        🤖 Powered by Claude, GPT-4 & Gemini • 📊 Datos en tiempo real • 🔧 Análisis técnico avanzado<br>
+        {"✅" if utils_loaded else "❌"} <small>Indicadores técnicos • Análisis de sentiment • Gestión de riesgo</small><br>
         <small>⚠️ <em>Este análisis es solo educativo y no constituye consejo financiero. Siempre haz tu propia investigación (DYOR).</em></small>
     </div>
     """, unsafe_allow_html=True)
@@ -1242,22 +1874,29 @@ Incluye niveles de precio exactos y condiciones específicas. Respuesta técnica
                         "Timeframe": st.session_state.current_timeframe, 
                         "Selected AI": st.session_state.selected_ai,
                         "Chat History Length": len(st.session_state.chat_history),
-                        "Show AI Comparison": st.session_state.show_ai_comparison
+                        "Show AI Comparison": st.session_state.show_ai_comparison,
+                        "Technical Analysis Enabled": st.session_state.show_technical_analysis,
+                        "Sentiment Analysis Enabled": st.session_state.show_sentiment_analysis
                     },
                     "Market Data Status": {
                         "Prices Data": bool(prices_data),
                         "Market Data": bool(market_data),
-                        "Fear & Greed Data": bool(fear_greed_data)
+                        "Fear & Greed Data": bool(fear_greed_data),
+                        "Chart Data": not chart_data.empty if 'chart_data' in locals() else False,
+                        "Technical Analysis": bool(technical_analysis)
                     },
-                    "AI Status": get_ai_stats() if config_loaded else "Not loaded",
-                    "Python Version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-                    "Config Loaded": config_loaded
+                    "System Status": {
+                        "Config Loaded": config_loaded,
+                        "Utils Loaded": utils_loaded,
+                        "AI Status": get_ai_stats() if config_loaded else "Not loaded",
+                        "Python Version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+                    }
                 }
                 st.json(debug_info)
             except Exception as e:
                 st.error(f"Error en debug info: {e}")
 
-# Funciones adicionales para manejo de errores y compatibilidad
+# Funciones adicionales para compatibilidad
 def safe_import_check():
     """Verifica que las importaciones críticas estén disponibles"""
     missing_modules = []
@@ -1326,7 +1965,9 @@ def get_system_info():
         "Platform": platform.system(),
         "Platform Version": platform.version(),
         "Architecture": platform.machine(),
-        "Streamlit Version": st.__version__ if hasattr(st, '__version__') else "Unknown"
+        "Streamlit Version": st.__version__ if hasattr(st, '__version__') else "Unknown",
+        "Config Loaded": config_loaded,
+        "Utils Loaded": utils_loaded
     }
     
     return info
@@ -1339,6 +1980,7 @@ if __name__ == "__main__":
         print("Ejecuta la instalación de dependencias antes de continuar.")
     else:
         print("✅ Todas las dependencias básicas están disponibles")
+        print(f"📊 Utils loaded: {utils_loaded}")
         
     # Ejecutar la aplicación
     try:
@@ -1375,14 +2017,23 @@ if __name__ == "__main__":
             3. Verifica que todos los archivos estén presentes:
                - config.py
                - ai_providers/ (carpeta completa)
+               - utils/ (carpeta completa)  
                - .env (con tus API keys)
             """)
 
-# Meta información del archivo
-__version__ = "2.0.0"
+# Meta información del archivo actualizada
+__version__ = "2.1.0"
 __author__ = "Trading Assistant Pro"
-__description__ = "Aplicación de análisis de trading con IA múltiple compatible con Python 3.8+"
+__description__ = "Aplicación de análisis de trading con IA múltiple + Utils integrados compatible con Python 3.8+"
 __python_requires__ = ">=3.8"
+__features__ = [
+    "Multiple AI providers (Claude, GPT-4, Gemini)",
+    "Advanced technical analysis (RSI, MACD, Bollinger Bands)",
+    "Sentiment analysis (News + Fear & Greed)",
+    "Real-time market data",
+    "Professional trading charts",
+    "Risk management tools"
+]
 
 # Configuraciones adicionales para producción
 PRODUCTION_CONFIG = {
@@ -1395,5 +2046,11 @@ PRODUCTION_CONFIG = {
         "backgroundColor": "#0f172a",
         "secondaryBackgroundColor": "#1e293b",
         "textColor": "#f8fafc"
+    },
+    "features": {
+        "technical_analysis": True,
+        "sentiment_analysis": True,
+        "ai_providers": True,
+        "real_time_data": True
     }
 }
