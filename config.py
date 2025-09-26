@@ -90,41 +90,95 @@ class TradingConfig:
         'extreme_greed': (75, 100)
     }
 
-# Validaciones
+# Funciones de validación corregidas
+def is_api_key_valid(api_key, provider_type):
+    """Valida si una API key tiene formato correcto"""
+    if not api_key:
+        return False
+        
+    # Verificar que no sea placeholder
+    placeholder_keys = [
+        'sk-your-openai-key-here',
+        'sk-ant-your-claude-key-here', 
+        'your-gemini-key-here',
+        'your-google-key-here'
+    ]
+    
+    if api_key in placeholder_keys:
+        return False
+    
+    # Verificar formato básico
+    if provider_type == 'openai':
+        return api_key.startswith('sk-') and len(api_key) > 20
+    elif provider_type == 'anthropic':
+        return api_key.startswith('sk-ant-') and len(api_key) > 30
+    elif provider_type == 'gemini':
+        # Las keys de Gemini empiezan con "AIza" y son largas
+        return api_key.startswith('AIza') and len(api_key) > 35
+    
+    return True
+
+def get_available_ai_providers():
+    """Retorna lista de providers de IA disponibles según las API keys - VERSIÓN CORREGIDA"""
+    providers = []
+    
+    # Debug: imprimir las keys para verificar
+    if Config.DEBUG:
+        print("=== DEBUG API KEYS ===")
+        print(f"OPENAI_API_KEY: {AIConfig.OPENAI_API_KEY[:10] if AIConfig.OPENAI_API_KEY else 'None'}...")
+        print(f"ANTHROPIC_API_KEY: {AIConfig.ANTHROPIC_API_KEY[:15] if AIConfig.ANTHROPIC_API_KEY else 'None'}...")
+        print(f"GEMINI_API_KEY: {AIConfig.GEMINI_API_KEY[:10] if AIConfig.GEMINI_API_KEY else 'None'}...")
+    
+    # Verificar OpenAI
+    if is_api_key_valid(AIConfig.OPENAI_API_KEY, 'openai'):
+        providers.append('openai')
+        if Config.DEBUG:
+            print("✅ OpenAI añadido")
+    elif Config.DEBUG:
+        print("❌ OpenAI no válido")
+    
+    # Verificar Anthropic/Claude
+    if is_api_key_valid(AIConfig.ANTHROPIC_API_KEY, 'anthropic'):
+        providers.append('claude')
+        if Config.DEBUG:
+            print("✅ Claude añadido")
+    elif Config.DEBUG:
+        print("❌ Claude no válido")
+    
+    # Verificar Gemini - CORRECCIÓN PRINCIPAL
+    if is_api_key_valid(AIConfig.GEMINI_API_KEY, 'gemini'):
+        providers.append('gemini')
+        if Config.DEBUG:
+            print("✅ Gemini añadido")
+    elif Config.DEBUG:
+        print(f"❌ Gemini no válido - Key: {AIConfig.GEMINI_API_KEY[:15] if AIConfig.GEMINI_API_KEY else 'None'}...")
+        
+    if Config.DEBUG:
+        print(f"Providers finales: {providers}")
+        print("====================")
+        
+    return providers
+
 def validate_config():
     """Valida que la configuración esté correcta"""
     errors = []
     
-    # Validar que al menos una API key de IA esté presente
-    ai_keys = [
-        AIConfig.OPENAI_API_KEY,
-        AIConfig.ANTHROPIC_API_KEY, 
-        AIConfig.GEMINI_API_KEY
-    ]
+    # Obtener providers disponibles usando la función corregida
+    available_providers = get_available_ai_providers()
     
-    if not any(ai_keys):
-        errors.append("⚠️ No se encontró ninguna API key de IA. Agrega al menos una en el archivo .env")
+    if not available_providers:
+        errors.append("⚠️ No se encontró ninguna API key de IA válida. Agrega al menos una en el archivo .env")
     
     # Validar provider por defecto
     valid_providers = ['openai', 'claude', 'gemini']
     if AIConfig.DEFAULT_AI_PROVIDER not in valid_providers:
         errors.append(f"❌ Provider de IA inválido: {AIConfig.DEFAULT_AI_PROVIDER}. Debe ser uno de: {valid_providers}")
     
-    return errors
-
-# Helper functions
-def get_available_ai_providers():
-    """Retorna lista de providers de IA disponibles según las API keys"""
-    providers = []
+    # Validar que el provider por defecto esté disponible
+    if AIConfig.DEFAULT_AI_PROVIDER not in available_providers and available_providers:
+        errors.append(f"⚠️ Provider por defecto '{AIConfig.DEFAULT_AI_PROVIDER}' no está disponible. Providers disponibles: {available_providers}")
     
-    if AIConfig.OPENAI_API_KEY and AIConfig.OPENAI_API_KEY != 'sk-your-openai-key-here':
-        providers.append('openai')
-    if AIConfig.ANTHROPIC_API_KEY and AIConfig.ANTHROPIC_API_KEY != 'sk-ant-your-claude-key-here':
-        providers.append('claude') 
-    if AIConfig.GEMINI_API_KEY and AIConfig.GEMINI_API_KEY != 'your-gemini-key-here':
-        providers.append('gemini')
-        
-    return providers
+    return errors
 
 def get_symbol_display_name(symbol):
     """Convierte símbolo técnico a nombre legible"""
@@ -137,31 +191,6 @@ def get_symbol_display_name(symbol):
         'AVAX-USD': 'Avalanche'
     }
     return symbol_names.get(symbol, symbol)
-
-def is_api_key_valid(api_key, provider_type):
-    """Valida si una API key tiene formato correcto"""
-    if not api_key:
-        return False
-        
-    # Verificar que no sea placeholder
-    placeholder_keys = [
-        'sk-your-openai-key-here',
-        'sk-ant-your-claude-key-here', 
-        'your-gemini-key-here'
-    ]
-    
-    if api_key in placeholder_keys:
-        return False
-    
-    # Verificar formato básico
-    if provider_type == 'openai':
-        return api_key.startswith('sk-') and len(api_key) > 20
-    elif provider_type == 'anthropic':
-        return api_key.startswith('sk-ant-') and len(api_key) > 30
-    elif provider_type == 'gemini':
-        return len(api_key) > 20  # Gemini no tiene prefijo específico
-    
-    return True
 
 def get_provider_status():
     """Retorna estado detallado de cada provider"""
@@ -190,8 +219,36 @@ def get_provider_status():
     
     return status
 
+def debug_ai_config():
+    """Función de debug para verificar configuración de AI"""
+    print("=== DEBUG DETALLADO ===")
+    print(f"OPENAI_API_KEY: '{AIConfig.OPENAI_API_KEY}'")
+    print(f"ANTHROPIC_API_KEY: '{AIConfig.ANTHROPIC_API_KEY}'")
+    print(f"GEMINI_API_KEY: '{AIConfig.GEMINI_API_KEY}'")
+    print(f"DEFAULT_AI_PROVIDER: {AIConfig.DEFAULT_AI_PROVIDER}")
+    
+    print("\n--- VALIDACIONES INDIVIDUALES ---")
+    if AIConfig.OPENAI_API_KEY:
+        print(f"OpenAI válida: {is_api_key_valid(AIConfig.OPENAI_API_KEY, 'openai')}")
+    if AIConfig.ANTHROPIC_API_KEY:
+        print(f"Claude válida: {is_api_key_valid(AIConfig.ANTHROPIC_API_KEY, 'anthropic')}")
+    if AIConfig.GEMINI_API_KEY:
+        print(f"Gemini válida: {is_api_key_valid(AIConfig.GEMINI_API_KEY, 'gemini')}")
+        print(f"Gemini starts with AIza: {AIConfig.GEMINI_API_KEY.startswith('AIza') if AIConfig.GEMINI_API_KEY else False}")
+        print(f"Gemini length: {len(AIConfig.GEMINI_API_KEY) if AIConfig.GEMINI_API_KEY else 0}")
+    
+    print(f"\nProviders disponibles: {get_available_ai_providers()}")
+    print("========================")
+
 if __name__ == "__main__":
     # Test de configuración
+    print("🔍 INICIANDO DIAGNÓSTICO DE CONFIGURACIÓN...")
+    
+    # Debug detallado si está habilitado
+    if Config.DEBUG:
+        debug_ai_config()
+    
+    # Validación normal
     errors = validate_config()
     if errors:
         print("❌ Errores de configuración:")
@@ -200,7 +257,8 @@ if __name__ == "__main__":
     else:
         print("✅ Configuración válida")
         
-    print(f"📊 Providers de IA disponibles: {get_available_ai_providers()}")
+    available = get_available_ai_providers()
+    print(f"📊 Providers de IA disponibles: {available}")
     print(f"🤖 Provider por defecto: {AIConfig.DEFAULT_AI_PROVIDER}")
     
     # Mostrar estado de providers
@@ -209,3 +267,5 @@ if __name__ == "__main__":
     for name, status in provider_status.items():
         status_icon = "✅" if status['available'] else "❌"
         print(f"  {status_icon} {status['name']}: {'Disponible' if status['available'] else 'No configurado'}")
+    
+    print(f"\n🎯 Recomendación: Usa el provider '{available[0] if available else 'ninguno'}'")

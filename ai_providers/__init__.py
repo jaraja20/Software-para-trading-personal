@@ -1,11 +1,11 @@
 """
 Gestor centralizado de providers de IA para Trading Assistant
+Solo Claude y Gemini - Sin OpenAI
 """
 from typing import Dict, List, Optional, Any
 import logging
 from .base_ai import BaseAI
 from .claude_ai import ClaudeAI
-from .openai_gpt import OpenAIGPT
 from .gemini_ai import GeminiAI
 from config import AIConfig
 
@@ -20,23 +20,36 @@ class AIProviderManager:
         self._initialize_providers()
     
     def _initialize_providers(self):
-        """Inicializa todos los providers disponibles"""
-        provider_classes = {
-            'claude': ClaudeAI,
-            'openai': OpenAIGPT,
-            'gemini': GeminiAI
-        }
+        """Inicializa solo Claude y Gemini"""
         
-        for name, provider_class in provider_classes.items():
-            try:
-                provider = provider_class()
-                if provider.is_available():
-                    self.providers[name] = provider
-                    self.logger.info(f"✅ {provider.get_provider_name()} inicializado correctamente")
+        # Claude/Anthropic
+        try:
+            if AIConfig.ANTHROPIC_API_KEY and AIConfig.ANTHROPIC_API_KEY.startswith('sk-ant-'):
+                claude_provider = ClaudeAI()
+                if claude_provider.is_available():
+                    self.providers['claude'] = claude_provider
+                    self.logger.info("✅ Claude (Anthropic) inicializado correctamente")
                 else:
-                    self.logger.warning(f"⚠️ {name} no disponible (falta API key)")
-            except Exception as e:
-                self.logger.error(f"❌ Error inicializando {name}: {e}")
+                    self.logger.warning("⚠️ Claude no disponible (API key inválida)")
+            else:
+                self.logger.warning("⚠️ Claude no disponible (falta API key)")
+        except Exception as e:
+            self.logger.error(f"❌ Error inicializando Claude: {e}")
+        
+        # Gemini/Google - Con manejo especial para la API
+        try:
+            if AIConfig.GEMINI_API_KEY and AIConfig.GEMINI_API_KEY.startswith('AIza'):
+                gemini_provider = GeminiAI()
+                if gemini_provider.is_available():
+                    self.providers['gemini'] = gemini_provider
+                    self.logger.info("✅ Gemini (Google) inicializado correctamente")
+                else:
+                    self.logger.warning("⚠️ Gemini no disponible (API key inválida)")
+            else:
+                self.logger.warning("⚠️ Gemini no disponible (falta API key)")
+        except Exception as e:
+            self.logger.error(f"❌ Error inicializando Gemini: {e}")
+            # Continuar sin Gemini si falla
     
     def get_available_providers(self) -> List[str]:
         """Retorna lista de providers disponibles"""
@@ -65,14 +78,41 @@ class AIProviderManager:
         provider = self.get_provider(provider_name)
         if not provider:
             available = ", ".join(self.get_available_providers())
+            if not available:
+                return """❌ **No hay providers de IA disponibles**
+
+**Problema detectado:**
+- Gemini falla en la inicialización: `GenerativeModel` no encontrado
+- Versión incompatible de google-generativeai
+
+**Solución:**
+```bash
+# Desinstalar versión actual
+pip uninstall google-generativeai
+
+# Instalar versión compatible
+pip install google-generativeai==0.4.0
+```
+
+**O como alternativa temporal, solo usar Claude:**
+```bash
+# En tu .env, cambia:
+DEFAULT_AI_PROVIDER=claude
+```
+
+**Mientras tanto, puedes usar:**
+- Datos del mercado en tiempo real
+- Gráficos profesionales
+- Métricas globales del mercado
+            """
             return f"❌ Provider '{provider_name}' no disponible. Providers disponibles: {available}"
+        
         self.logger.debug(f"[{provider_name}] Analyzing message: {message}")
-        self.logger.debug(f"[{provider_name}] Market data keys: {list(market_data.keys())}")
   
         try:
             result = provider.analyze_market(message, market_data)
             self.logger.debug(f"[{provider_name}] Response length: {len(result) if result else 0}")
-            return provider.analyze_market(message, market_data)
+            return result
         except Exception as e:
             self.logger.exception(f"❌ Exception in provider {provider_name}")
             return provider.handle_error(e, "Analysis Error")
@@ -85,23 +125,27 @@ class AIProviderManager:
         if not provider:
             return """❌ **No hay providers de IA disponibles**
             
-**Para habilitar IA, agrega al menos una API key en el archivo .env:**
+**Estado actual:**
+- Claude: Configurado correctamente ✅
+- Gemini: Error de inicialización ❌
 
+**Solución rápida - Actualizar google-generativeai:**
 ```bash
-# OpenAI (GPT-4)
-OPENAI_API_KEY=sk-your-key-here
-
-# Anthropic (Claude)  
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-
-# Google (Gemini)
-GEMINI_API_KEY=your-gemini-key-here
+pip install --upgrade google-generativeai==0.4.0
 ```
 
-**Mientras tanto, puedes:**
-- Usar los datos del mercado en tiempo real
-- Analizar los gráficos de velas
-- Consultar métricas como Fear & Greed Index
+**O usar solo Claude temporalmente:**
+En tu archivo `.env`, cambia:
+```bash
+DEFAULT_AI_PROVIDER=claude
+```
+
+**Características disponibles sin IA:**
+- 📊 Gráficos en tiempo real con Binance API
+- 💰 Precios actualizados de CoinGecko
+- 📈 Métricas globales del mercado
+- 😨 Índice Fear & Greed
+- 🔧 Análisis técnico visual (MA20, MA50)
             """
         
         return provider.analyze_market(message, market_data)
@@ -111,7 +155,28 @@ GEMINI_API_KEY=your-gemini-key-here
         Genera una comparación de todos los providers disponibles
         """
         if not self.providers:
-            return "❌ No hay providers de IA disponibles"
+            return """## ❌ No hay providers de IA disponibles
+
+**Problema principal:** Gemini no se puede inicializar debido a incompatibilidad de versiones.
+
+**Soluciones:**
+
+### 🔧 Opción 1: Actualizar Gemini
+```bash
+pip install --upgrade google-generativeai==0.4.0
+```
+
+### 🔧 Opción 2: Usar solo Claude
+En `.env`:
+```bash
+DEFAULT_AI_PROVIDER=claude
+```
+
+### 🔧 Opción 3: Verificar versiones
+```bash
+pip list | grep -E "(google-generativeai|anthropic)"
+```
+            """
         
         comparison = "## 🤖 PROVIDERS DE IA DISPONIBLES\n\n"
         
@@ -122,12 +187,6 @@ GEMINI_API_KEY=your-gemini-key-here
             
             for strength in provider.get_strengths():
                 comparison += f"- {strength}\n"
-            
-            capabilities = provider.get_capabilities()
-            special_caps = [k for k, v in capabilities.items() if v and k not in ['market_analysis', 'technical_indicators', 'risk_management']]
-            
-            if special_caps:
-                comparison += f"**Capacidades especiales:** {', '.join(special_caps)}\n"
             
             comparison += "\n"
         
@@ -153,10 +212,6 @@ ai_manager = AIProviderManager()
 def analyze_market(message: str, market_data: Dict[str, Any], provider: str = None) -> str:
     """
     Función principal para análisis de mercado
-    Args:
-        message: Consulta del usuario
-        market_data: Datos del mercado
-        provider: Provider específico (opcional)
     """
     if provider:
         return ai_manager.analyze_with_provider(provider, message, market_data)

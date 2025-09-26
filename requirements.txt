@@ -18,3 +18,30 @@ google-generativeai==0.3.2
 #- Python Docstring Generator
 #- autoDocstring
 #- Python Indent
+
+
+# ===========================================
+# Trading Assistant Pro - Dependencias Py 3.10
+# ===========================================
+
+# Core
+streamlit==1.35.0
+plotly==5.22.0
+pandas==2.2.2
+numpy==1.26.4
+requests==2.32.3
+python-dotenv==1.0.1
+
+# Trading / Finanzas
+ccxt==4.3.89
+yfinance==0.2.40
+
+# IA Providers
+openai==1.40.6
+anthropic==0.34.2
+google-generativeai==0.7.2
+
+# ===========================================
+# Recomendado: instalar con
+# py -3.10 -m pip install -r requirements_310.txt
+# ===========================================
