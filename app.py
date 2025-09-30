@@ -17,6 +17,15 @@ import logging
 import sys
 from typing import Dict, List, Optional, Any
 
+from utils.binance_data import (
+    get_all_symbols, 
+    get_ticker_data, 
+    get_top_movers, 
+    search_symbol,
+    get_chart_data,
+    get_realtime_price
+)
+
 # Importar módulos propios con manejo de errores (ANTES de cualquier comando de Streamlit)
 try:
     from config import Config, AIConfig, TradingConfig, validate_config
@@ -66,174 +75,213 @@ if not utils_loaded:
     st.warning("⚠️ Los módulos de análisis técnico y sentiment no están disponibles. Funcionalidad limitada.")
 
 # CSS personalizado mejorado con nuevos estilos para indicadores técnicos
+# CSS personalizado mejorado - TEMA OSCURO BINANCE
 st.markdown("""
 <style>
+    /* Tema oscuro completo */
     .stApp {
-        background-color: #0f172a;
+        background-color: #000000;
     }
-    .main-header {
-        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-        padding: 1.5rem;
-        border-radius: 12px;
-        text-align: center;
-        color: white;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
-    }
-    .ai-provider-card {
-        background: #1e293b;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #3b82f6;
-        margin: 0.5rem 0;
-    }
-    .metric-card {
-        background: #1e293b;
-        padding: 1rem;
-        border-radius: 10px;
-        border: 1px solid #334155;
-        text-align: center;
-        transition: transform 0.2s;
-    }
-    .metric-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }
-    .price-positive {
-        color: #10b981 !important;
-    }
-    .price-negative {
-        color: #ef4444 !important;
-    }
-    div[data-testid="metric-container"] {
-        background-color: #1e293b;
-        border: 1px solid #334155;
-        padding: 1rem;
-        border-radius: 10px;
-    }
-    .stSelectbox > div > div {
-        background-color: #1e293b;
-        color: #f8fafc;
-    }
-    .chat-message {
-        padding: 1rem;
-        border-radius: 12px;
-        margin: 0.5rem 0;
-        word-wrap: break-word;
-    }
-    .user-message {
-        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-        color: white;
-        margin-left: 15%;
-        border-bottom-right-radius: 4px;
-    }
-    .ai-message {
-        background: #374151;
-        color: #f3f4f6;
-        margin-right: 15%;
-        border-bottom-left-radius: 4px;
-        border-left: 3px solid #3b82f6;
-    }
-    .sidebar-section {
-        background: #1e293b;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-        border: 1px solid #334155;
-    }
-    .status-indicator {
-        display: inline-block;
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        margin-right: 8px;
-        animation: pulse 2s infinite;
-    }
-    .status-online { background-color: #10b981; }
-    .status-offline { background-color: #ef4444; }
     
-    /* Nuevos estilos para análisis técnico */
-    .technical-indicator {
-        background: #1e293b;
-        padding: 0.8rem;
+    .main .block-container {
+        background-color: #000000;
+        padding-top: 2rem;
+    }
+    
+    /* Header principal */
+    .main-header {
+        background: linear-gradient(135deg, #f0b90b, #f8d12f);
+        padding: 1rem 1.5rem;
         border-radius: 8px;
-        border-left: 3px solid #3b82f6;
-        margin: 0.5rem 0;
+        text-align: center;
+        color: #000000;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 20px rgba(240, 185, 11, 0.3);
     }
-    .sentiment-card {
-        background: #1e293b;
-        padding: 1rem;
-        border-radius: 8px;
-        border: 1px solid #334155;
-        margin: 0.5rem 0;
-    }
-    .signal-bullish {
-        border-left: 4px solid #10b981;
-    }
-    .signal-bearish {
-        border-left: 4px solid #ef4444;
-    }
-    .signal-neutral {
-        border-left: 4px solid #6b7280;
-    }
-    .news-headline {
-        background: #374151;
+    
+    /* Tabs para Spot/Futures */
+    .market-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
         padding: 0.5rem;
+        background: #1a1a1a;
+        border-radius: 8px;
+    }
+    
+    .market-tab {
+        padding: 0.5rem 1.5rem;
+        background: #2b2b2b;
+        border: 1px solid #3a3a3a;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: #b0b0b0;
+    }
+    
+    .market-tab.active {
+        background: #f0b90b;
+        color: #000000;
+        border-color: #f0b90b;
+    }
+    
+    .market-tab:hover {
+        background: #3a3a3a;
+        border-color: #f0b90b;
+    }
+    
+    /* Buscador de símbolos */
+    .symbol-search {
+        background: #1a1a1a;
+        border: 1px solid #3a3a3a;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    /* Lista de símbolos */
+    .symbol-list {
+        max-height: 400px;
+        overflow-y: auto;
+        background: #1a1a1a;
+        border-radius: 8px;
+        padding: 0.5rem;
+    }
+    
+    .symbol-item {
+        padding: 0.8rem;
+        background: #2b2b2b;
+        border: 1px solid #3a3a3a;
         border-radius: 6px;
         margin: 0.3rem 0;
-        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
     
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.6; }
+    .symbol-item:hover {
+        background: #3a3a3a;
+        border-color: #f0b90b;
     }
     
-    /* Scrollbar personalizado */
-    .element-container::-webkit-scrollbar {
-        width: 6px;
-    }
-    .element-container::-webkit-scrollbar-track {
-        background: #1e293b;
-    }
-    .element-container::-webkit-scrollbar-thumb {
-        background: #475569;
-        border-radius: 3px;
+    /* Métricas */
+    .metric-card {
+        background: #1a1a1a;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #3a3a3a;
+        text-align: center;
     }
     
-    /* Chat container con altura fija */
+    div[data-testid="metric-container"] {
+        background-color: #1a1a1a;
+        border: 1px solid #3a3a3a;
+        padding: 1rem;
+        border-radius: 8px;
+    }
+    
+    /* Precios */
+    .price-positive {
+        color: #0ecb81 !important;
+    }
+    
+    .price-negative {
+        color: #f6465d !important;
+    }
+    
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #1a1a1a;
+        border-right: 1px solid #3a3a3a;
+    }
+    
+    section[data-testid="stSidebar"] > div {
+        background-color: #1a1a1a;
+    }
+    
+    /* Inputs y selectboxes */
+    .stSelectbox > div > div,
+    .stTextInput > div > div > input {
+        background-color: #2b2b2b;
+        color: #e0e0e0;
+        border: 1px solid #3a3a3a;
+    }
+    
+    /* Chat */
     .chat-container {
         height: 500px;
         max-height: 500px;
         overflow-y: auto;
-        overflow-x: hidden;
         padding: 1rem;
-        background-color: #1e293b;
+        background-color: #1a1a1a;
         border-radius: 8px;
-        border: 1px solid #334155;
+        border: 1px solid #3a3a3a;
         margin-bottom: 1rem;
-        word-wrap: break-word;
-        white-space: pre-wrap;
     }
+    
     .chat-message {
         padding: 1rem;
         border-radius: 12px;
         margin: 0.5rem 0;
         word-wrap: break-word;
-        white-space: pre-wrap;
-        max-width: 100%;
-        overflow-wrap: break-word;
-        hyphens: auto;
     }
-    .message-content {
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-width: 100%;
-    }  
-    .provider-info {
-    margin-bottom: 0.5rem;
-    font-size: 0.8rem;
-    color: #9ca3af;
+    
+    .user-message {
+        background: linear-gradient(135deg, #f0b90b, #f8d12f);
+        color: #000000;
+        margin-left: 15%;
+    }
+    
+    .ai-message {
+        background: #2b2b2b;
+        color: #e0e0e0;
+        margin-right: 15%;
+        border-left: 3px solid #f0b90b;
+    }
+    
+    /* Botones */
+    .stButton > button {
+        background-color: #f0b90b;
+        color: #000000;
+        border: none;
+        border-radius: 6px;
+        font-weight: 600;
+        transition: all 0.2s;
+    }
+    
+    .stButton > button:hover {
+        background-color: #f8d12f;
+        box-shadow: 0 4px 12px rgba(240, 185, 11, 0.4);
+    }
+    
+    /* Scrollbar personalizado */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: #1a1a1a;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: #3a3a3a;
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: #f0b90b;
+    }
+    
+    /* Texto general */
+    .stMarkdown, p, span, div {
+        color: #e0e0e0;
+    }
+    
+    h1, h2, h3, h4, h5, h6 {
+        color: #ffffff;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -282,6 +330,14 @@ def initialize_session_state():
                 st.session_state.selected_ai = default_ai
         except:
             st.session_state.selected_ai = None
+
+def setup_auto_refresh():
+    """Configura auto-refresh para actualización en tiempo real"""
+    if 'auto_refresh_enabled' not in st.session_state:
+        st.session_state.auto_refresh_enabled = False
+    
+    if 'refresh_interval' not in st.session_state:
+        st.session_state.refresh_interval = 5  # segundos
 
 def validate_and_show_config():
     """Valida configuración y muestra advertencias si es necesario"""
@@ -551,21 +607,21 @@ def get_sentiment_analysis(symbol):
         return None
 
 def create_candlestick_chart(data, symbol, timeframe, technical_analysis=None):
-    """Crea gráfico de velas profesional con indicadores técnicos integrados"""
+    """Crea gráfico de velas estilo Binance con máxima interactividad"""
     if data.empty:
         return None
     
     try:
-        # Crear subplots: precio (70%), volumen (15%), RSI (15%)
+        # Crear subplots
         fig = make_subplots(
             rows=3, cols=1,
             shared_xaxes=True,
-            vertical_spacing=0.05,
+            vertical_spacing=0.03,
             subplot_titles=(f'{symbol} - {timeframe.upper()}', 'Volumen', 'RSI'),
             row_heights=[0.7, 0.15, 0.15]
         )
         
-        # Gráfico de velas principal
+        # Velas con colores más intensos tipo Binance
         fig.add_trace(
             go.Candlestick(
                 x=data.index,
@@ -574,10 +630,12 @@ def create_candlestick_chart(data, symbol, timeframe, technical_analysis=None):
                 low=data['Low'],
                 close=data['Close'],
                 name="Precio",
-                increasing_line_color='#10b981',
-                decreasing_line_color='#ef4444',
-                increasing_fillcolor='rgba(16, 185, 129, 0.3)',
-                decreasing_fillcolor='rgba(239, 68, 68, 0.3)'
+                increasing_line_color='#0ecb81',  # Verde Binance
+                decreasing_line_color='#f6465d',  # Rojo Binance
+                increasing_fillcolor='#0ecb81',
+                decreasing_fillcolor='#f6465d',
+                increasing_line_width=1.5,
+                decreasing_line_width=1.5
             ),
             row=1, col=1
         )
@@ -591,7 +649,7 @@ def create_candlestick_chart(data, symbol, timeframe, technical_analysis=None):
                     x=data_copy.index, 
                     y=data_copy['MA20'],
                     name='MA20', 
-                    line=dict(color='#3b82f6', width=2),
+                    line=dict(color='#f0b90b', width=1.5),
                     opacity=0.8
                 ),
                 row=1, col=1
@@ -604,13 +662,13 @@ def create_candlestick_chart(data, symbol, timeframe, technical_analysis=None):
                     x=data_copy.index, 
                     y=data_copy['MA50'],
                     name='MA50', 
-                    line=dict(color='#f59e0b', width=2),
+                    line=dict(color='#2962ff', width=1.5),
                     opacity=0.8
                 ),
                 row=1, col=1
             )
         
-        # Bollinger Bands si tenemos análisis técnico
+        # Bollinger Bands si disponibles
         if technical_analysis and utils_loaded and 'bollinger' in technical_analysis:
             try:
                 bb = technical_analysis['bollinger']
@@ -619,8 +677,8 @@ def create_candlestick_chart(data, symbol, timeframe, technical_analysis=None):
                         x=data.index,
                         y=bb['upper'],
                         name='BB Upper',
-                        line=dict(color='#6b7280', width=1, dash='dash'),
-                        opacity=0.6
+                        line=dict(color='#787b86', width=1, dash='dash'),
+                        opacity=0.5
                     ),
                     row=1, col=1
                 )
@@ -629,19 +687,19 @@ def create_candlestick_chart(data, symbol, timeframe, technical_analysis=None):
                         x=data.index,
                         y=bb['lower'],
                         name='BB Lower',
-                        line=dict(color='#6b7280', width=1, dash='dash'),
+                        line=dict(color='#787b86', width=1, dash='dash'),
                         fill='tonexty',
-                        fillcolor='rgba(107, 114, 128, 0.1)',
-                        opacity=0.6
+                        fillcolor='rgba(120, 123, 134, 0.1)',
+                        opacity=0.5
                     ),
                     row=1, col=1
                 )
             except Exception as e:
                 logger.warning(f"Error añadiendo Bollinger Bands: {e}")
         
-        # Gráfico de volumen con colores
-        colors = ['#10b981' if data['Close'].iloc[i] >= data['Open'].iloc[i] 
-                  else '#ef4444' for i in range(len(data))]
+        # Volumen con colores
+        colors = ['#0ecb81' if data['Close'].iloc[i] >= data['Open'].iloc[i] 
+                  else '#f6465d' for i in range(len(data))]
         
         fig.add_trace(
             go.Bar(
@@ -654,7 +712,7 @@ def create_candlestick_chart(data, symbol, timeframe, technical_analysis=None):
             row=2, col=1
         )
         
-        # RSI si tenemos análisis técnico
+        # RSI
         if technical_analysis and utils_loaded and len(data) >= 14:
             try:
                 indicators = TechnicalIndicators()
@@ -665,117 +723,118 @@ def create_candlestick_chart(data, symbol, timeframe, technical_analysis=None):
                         x=data.index,
                         y=rsi_values,
                         name="RSI",
-                        line=dict(color='#8b5cf6', width=2)
+                        line=dict(color='#f0b90b', width=2)
                     ),
                     row=3, col=1
                 )
                 
-                # Líneas de referencia RSI
-                fig.add_hline(y=70, line=dict(color='#ef4444', dash='dash'), row=3, col=1)
-                fig.add_hline(y=30, line=dict(color='#10b981', dash='dash'), row=3, col=1)
-                fig.add_hline(y=50, line=dict(color='#6b7280', dash='dot'), row=3, col=1)
+                fig.add_hline(y=70, line=dict(color='#f6465d', dash='dash', width=1), row=3, col=1)
+                fig.add_hline(y=30, line=dict(color='#0ecb81', dash='dash', width=1), row=3, col=1)
+                fig.add_hline(y=50, line=dict(color='#787b86', dash='dot', width=1), row=3, col=1)
             except Exception as e:
                 logger.warning(f"Error añadiendo RSI: {e}")
         
-        # Layout profesional
+        # Layout estilo Binance con máxima interactividad
         fig.update_layout(
-    title={
-        'text': f"<b>{symbol}</b> - Análisis Técnico Completo [{timeframe.upper()}]",
-        'x': 0.5,
-        'font': {'size': 20, 'color': '#f8fafc'}
-    },
-    template="plotly_dark",
-    height=750,
-    showlegend=True,
-    legend=dict(
-        yanchor="top",
-        y=0.99,
-        xanchor="left", 
-        x=0.01,
-        bgcolor="rgba(30, 41, 59, 0.8)"
-    ),
-    xaxis_rangeslider_visible=False,
-    plot_bgcolor='#0f172a',
-    paper_bgcolor='#0f172a',
-    font=dict(color='#f8fafc'),
-    margin=dict(l=60, r=60, t=80, b=60),
-    
-    # NUEVAS CONFIGURACIONES AGREGADAS:
-    dragmode='pan',  # Herramienta por defecto: mover (no zoom)
-    
-    # Configuración del eje X mejorada
-    xaxis=dict(
-        rangeslider=dict(visible=False),
-        type="date",
-        range=[data.index[0], data.index[-1]],  # Rango completo de datos
-        rangeselector=dict(
-            buttons=list([
-                dict(count=1, label="1D", step="day", stepmode="backward"),
-                dict(count=7, label="7D", step="day", stepmode="backward"),
-                dict(count=30, label="30D", step="day", stepmode="backward"),
-                dict(count=90, label="3M", step="day", stepmode="backward"),
-                dict(step="all", label="Todo")
-            ]),
-            bgcolor="rgba(30, 41, 59, 0.8)",
-            activecolor="#3b82f6",
-            bordercolor="#334155",
-            borderwidth=1
-        ),
-        showspikes=True,
-        spikecolor="#3b82f6",
-        spikesnap="cursor",
-        spikemode="across"
-    ),
-    
-    # Configuración del eje Y mejorada
-    yaxis=dict(
-        fixedrange=False,  # Permitir zoom vertical
-        showspikes=True,
-        spikecolor="#3b82f6",
-        spikesnap="cursor",
-        spikemode="across"
-    ),
-    
-    # Barra de herramientas mejorada
-    modebar=dict(
-        bgcolor="rgba(30, 41, 59, 0.9)",
-        color="#f8fafc",
-        activecolor="#3b82f6",
-        orientation="h",
-        add=[
-            'pan2d',           # Mover
-            'select2d',        # Seleccionar
-            'lasso2d',         # Lazo
-            'zoomIn2d',        # Zoom in
-            'zoomOut2d',       # Zoom out
-            'autoScale2d',     # Auto escala
-            'resetScale2d',    # Reset zoom (¡BOTÓN DE RESET!)
-            'toggleSpikelines', # Toggle crosshair
-            'hoverCompareCartesian'  # Comparar valores
-        ],
-        remove=['toImage', 'sendDataToCloud']  # Quitar botones innecesarios
-    ),
-    
-    # Configuraciones adicionales para mejor interactividad
-    hovermode='x unified',  # Hover unificado en eje X
-    hoverdistance=100,      # Distancia de activación del hover
-    spikedistance=1000,     # Distancia de activación de spikes
-    
-    # Configuración de selección
-    selectdirection='h'
+            title={
+                'text': f"<b>{symbol}</b> [{timeframe.upper()}]",
+                'x': 0.5,
+                'font': {'size': 20, 'color': '#ffffff'}
+            },
+            template="plotly_dark",
+            height=750,
+            showlegend=True,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left", 
+                x=0.01,
+                bgcolor="rgba(26, 26, 26, 0.8)",
+                font=dict(color='#e0e0e0')
+            ),
+            xaxis_rangeslider_visible=False,
+            plot_bgcolor='#000000',
+            paper_bgcolor='#000000',
+            font=dict(color='#e0e0e0'),
+            margin=dict(l=70, r=70, t=80, b=60),
+            
+            # MÁXIMA INTERACTIVIDAD
+            dragmode='pan',
+            
+            # Eje X con rango completo
+            xaxis=dict(
+                rangeslider=dict(visible=False),
+                type="date",
+                showspikes=True,
+                spikecolor="#f0b90b",
+                spikesnap="cursor",
+                spikemode="across",
+                gridcolor='#1a1a1a',
+                showgrid=True,
+                # CLAVE: Mostrar TODOS los datos
+                range=[data.index.min(), data.index.max()],
+                rangeselector=dict(
+                    buttons=list([
+                        dict(count=1, label="1H", step="hour", stepmode="backward"),
+                        dict(count=4, label="4H", step="hour", stepmode="backward"),
+                        dict(count=1, label="1D", step="day", stepmode="backward"),
+                        dict(count=7, label="7D", step="day", stepmode="backward"),
+                        dict(count=30, label="1M", step="day", stepmode="backward"),
+                        dict(step="all", label="Todo")
+                    ]),
+                    bgcolor="rgba(26, 26, 26, 0.9)",
+                    activecolor="#f0b90b",
+                    bordercolor="#3a3a3a",
+                    font=dict(color='#e0e0e0')
+                )
+            ),
+            
+            # Eje Y con scroll para ajustar escala
+            yaxis=dict(
+                fixedrange=False,  # Permitir ajuste vertical
+                showspikes=True,
+                spikecolor="#f0b90b",
+                spikesnap="cursor",
+                spikemode="across",
+                gridcolor='#1a1a1a',
+                showgrid=True,
+                side='right'  # Precios a la derecha como Binance
+            ),
+            yaxis2=dict(
+                gridcolor='#1a1a1a',
+                showgrid=True,
+                side='right'
+            ),
+            yaxis3=dict(
+                gridcolor='#1a1a1a',
+                showgrid=True,
+                range=[0, 100],
+                side='right'
+            ),
+            
+            # Barra de herramientas completa
+            modebar=dict(
+                bgcolor="rgba(26, 26, 26, 0.9)",
+                color="#e0e0e0",
+                activecolor="#f0b90b"
+            ),
+            
+            hovermode='x unified',
+            hoverdistance=100,
+            spikedistance=1000
         )
         
-        # Personalizar ejes
-        fig.update_yaxes(title_text="Precio (USD)", row=1, col=1, gridcolor='#334155')
-        fig.update_yaxes(title_text="Volumen", row=2, col=1, gridcolor='#334155')
-        fig.update_yaxes(title_text="RSI", row=3, col=1, gridcolor='#334155', range=[0, 100])
-        fig.update_xaxes(gridcolor='#334155')
+        # Configurar ejes para permitir zoom con rueda del mouse
+        fig.update_xaxes(gridcolor='#1a1a1a', showgrid=True)
+        fig.update_yaxes(gridcolor='#1a1a1a', showgrid=True)
         
         return fig
         
     except Exception as e:
         logger.error(f"Error creando gráfico: {e}")
         return None
+    
+
 
 def create_market_summary_enhanced(prices_data, fear_greed_data, market_data, technical_analysis=None, sentiment_data=None, symbol=None):
     """Crea resumen MEJORADO del mercado para contexto de IA con análisis técnico y sentiment"""
@@ -801,7 +860,7 @@ def create_market_summary_enhanced(prices_data, fear_greed_data, market_data, te
     return summary
 
 def display_sidebar():
-    """Renderiza la sidebar con controles mejorados"""
+    """Renderiza la sidebar con controles mejorados estilo Binance"""
     st.sidebar.title("🎛️ Panel de Control")
     
     # Información de estado
@@ -859,7 +918,7 @@ def display_sidebar():
         except Exception as e:
             st.sidebar.error(f"Error configurando IA: {e}")
     
-    # NUEVA SECCIÓN: Configuración de análisis
+    # Configuración de análisis
     if utils_loaded:
         st.sidebar.markdown("### 📊 Configuración de Análisis")
         
@@ -875,50 +934,80 @@ def display_sidebar():
             help="Noticias, Fear & Greed, sentiment del mercado"
         )
     
-    # Configuración de gráfico
-    st.sidebar.markdown("### 📈 Configuración de Gráfico")
+    # === NUEVA SECCIÓN: Selección de Mercado y Activo ===
+    st.sidebar.markdown("### 📈 Selección de Activo")
     
-    # Selector de criptomoneda
-    default_symbols = {
-        'Bitcoin (BTC)': 'BTC-USD',
-        'Ethereum (ETH)': 'ETH-USD', 
-        'Solana (SOL)': 'SOL-USD',
-        'Cardano (ADA)': 'ADA-USD',
-        'Polygon (MATIC)': 'MATIC-USD',
-        'Avalanche (AVAX)': 'AVAX-USD'
-    }
-    
-    selected_crypto = st.sidebar.selectbox(
-        "Criptomoneda:",
-        list(default_symbols.keys()),
-        index=list(default_symbols.values()).index(st.session_state.current_symbol) if st.session_state.current_symbol in default_symbols.values() else 0
+    # Tabs Spot/Futures
+    market_type_options = ["Spot", "Futuros"]
+    selected_market = st.sidebar.radio(
+        "Tipo de Mercado:",
+        market_type_options,
+        index=0 if st.session_state.get('market_type', 'spot') == 'spot' else 1,
+        horizontal=True
     )
     
-    st.session_state.current_symbol = default_symbols[selected_crypto]
+    st.session_state.market_type = 'spot' if selected_market == "Spot" else 'futures'
+    
+    # Mostrar selector de símbolos en expander
+    with st.sidebar.expander("🔍 Buscar Moneda", expanded=False):
+        display_symbol_selector(st.session_state.market_type)
+    
+    # Mostrar símbolo actual
+    current_symbol_display = st.session_state.current_symbol.replace('-USD', '').replace('USDT', '')
+    st.sidebar.markdown(f"**Símbolo actual:** `{current_symbol_display}`")
     
     # Selector de timeframe
+    st.sidebar.markdown("### ⏱️ Timeframe")
+    
     timeframe_display = {
-        '5m': '5 Minutos', '15m': '15 Minutos', '30m': '30 Minutos',
-        '1h': '1 Hora', '4h': '4 Horas', '1d': '1 Día', 
-        '1w': '1 Semana', '1M': '1 Mes'
+        '1m': '1 Minuto',
+        '5m': '5 Minutos', 
+        '15m': '15 Minutos', 
+        '30m': '30 Minutos',
+        '1h': '1 Hora', 
+        '4h': '4 Horas', 
+        '1d': '1 Día', 
+        '1w': '1 Semana'
     }
     
-    market_type = st.sidebar.selectbox(
-    "Tipo de Mercado:",
-    ["Spot", "Futuros"],
-    index=0
-    )
-    st.session_state.market_type = market_type.lower()
-    
     selected_timeframe_display = st.sidebar.selectbox(
-        "Timeframe:",
+        "Intervalo:",
         list(timeframe_display.values()),
-        index=list(timeframe_display.keys()).index(st.session_state.current_timeframe) if st.session_state.current_timeframe in timeframe_display else 3
+        index=list(timeframe_display.keys()).index(st.session_state.current_timeframe) 
+              if st.session_state.current_timeframe in timeframe_display else 4
     )
     
     # Mapear de vuelta al valor técnico
     reverse_timeframe = {v: k for k, v in timeframe_display.items()}
     st.session_state.current_timeframe = reverse_timeframe[selected_timeframe_display]
+    
+    # === AUTO-REFRESH PARA TIEMPO REAL ===
+    st.sidebar.markdown("### ⚡ Actualización en Tiempo Real")
+    
+    auto_refresh = st.sidebar.checkbox(
+        "Activar Auto-Refresh",
+        value=st.session_state.get('auto_refresh_enabled', False),
+        help="Actualiza el gráfico automáticamente cada X segundos"
+    )
+    st.session_state.auto_refresh_enabled = auto_refresh
+    
+    if auto_refresh:
+        refresh_options = {
+            3: "3 segundos (rápido)",
+            5: "5 segundos (normal)",
+            10: "10 segundos (lento)",
+            30: "30 segundos (muy lento)"
+        }
+        
+        selected_interval = st.sidebar.select_slider(
+            "Intervalo de actualización:",
+            options=list(refresh_options.keys()),
+            value=st.session_state.get('refresh_interval', 5),
+            format_func=lambda x: refresh_options[x]
+        )
+        st.session_state.refresh_interval = selected_interval
+        
+        st.sidebar.info(f"🔄 Actualizando cada {selected_interval}s")
     
     # Controles adicionales
     st.sidebar.markdown("### 🔧 Controles")
@@ -936,6 +1025,169 @@ def display_sidebar():
                 {"role": "ai", "message": "👋 Chat reiniciado. ¿En qué puedo ayudarte?", "provider": "system"}
             ]
             st.rerun()
+
+
+def display_symbol_selector(market_type='spot'):
+    """Selector de símbolos estilo Binance con búsqueda y filtros"""
+    
+    # Tabs para filtros
+    filter_tab1, filter_tab2, filter_tab3 = st.tabs(["📊 Todos", "📈 Ganadores", "📉 Perdedores"])
+    
+    with filter_tab1:
+        # Buscador
+        search_query = st.text_input(
+            "Buscar moneda",
+            placeholder="Ej: BTC, ETH, SOL...",
+            key=f"symbol_search_{market_type}"
+        )
+        
+        # Obtener todos los símbolos
+        all_symbols = get_all_symbols(market_type)
+        
+        if not all_symbols:
+            st.warning("No se pudieron cargar los símbolos. Verifica tu conexión.")
+            return
+        
+        # Filtrar por búsqueda
+        if search_query:
+            filtered_symbols = [
+                s for s in all_symbols 
+                if search_query.upper() in s['symbol'] or 
+                   search_query.upper() in s['baseAsset']
+            ]
+        else:
+            filtered_symbols = all_symbols[:50]  # Mostrar primeros 50
+        
+        # Obtener precios actuales
+        ticker_data = get_ticker_data(market_type)
+        
+        # Mostrar lista de símbolos
+        st.markdown(f"**{len(filtered_symbols)} símbolos encontrados**")
+        
+        for symbol_info in filtered_symbols:
+            symbol = symbol_info['symbol']
+            base_asset = symbol_info['baseAsset']
+            
+            # Obtener precio y cambio
+            ticker = ticker_data.get(symbol, {})
+            price = ticker.get('price', 0)
+            change_24h = ticker.get('change_24h', 0)
+            
+            # Crear fila para cada símbolo
+            col1, col2, col3 = st.columns([2, 2, 1])
+            
+            with col1:
+                st.markdown(f"**{base_asset}**")
+            
+            with col2:
+                if price > 0:
+                    change_color = "price-positive" if change_24h >= 0 else "price-negative"
+                    price_display = f"${price:,.4f}" if price < 1 else f"${price:,.2f}"
+                    st.markdown(f"<span class='{change_color}'>{price_display}</span>", 
+                              unsafe_allow_html=True)
+                else:
+                    st.markdown("--")
+            
+            with col3:
+                if price > 0:
+                    change_color = "price-positive" if change_24h >= 0 else "price-negative"
+                    st.markdown(f"<span class='{change_color}'>{change_24h:+.1f}%</span>", 
+                              unsafe_allow_html=True)
+            
+            # Botón para seleccionar
+            if st.button(f"Ver {base_asset}", key=f"select_{symbol}_{market_type}", use_container_width=True):
+                if market_type == 'spot':
+                    st.session_state.current_symbol = f"{base_asset}-USD"
+                else:
+                    st.session_state.current_symbol = symbol
+                st.rerun()
+            
+            st.divider()
+    
+    with filter_tab2:
+        # Top Ganadores
+        try:
+            gainers, _ = get_top_movers(market_type, limit=20)
+            
+            st.markdown("### 📈 Top 20 Ganadores 24h")
+            
+            if not gainers:
+                st.info("No se pudieron cargar los ganadores")
+                return
+            
+            for i, gainer in enumerate(gainers, 1):
+                col1, col2, col3 = st.columns([1, 3, 2])
+                
+                with col1:
+                    st.markdown(f"**#{i}**")
+                
+                with col2:
+                    symbol_display = gainer['symbol'].replace('USDT', '')
+                    st.markdown(f"**{symbol_display}**")
+                    price_display = f"${gainer['price']:,.4f}" if gainer['price'] < 1 else f"${gainer['price']:,.2f}"
+                    st.markdown(f"<span class='price-positive'>{price_display}</span>", 
+                              unsafe_allow_html=True)
+                
+                with col3:
+                    st.markdown(f"<span class='price-positive'>+{gainer['change_24h']:.2f}%</span>", 
+                              unsafe_allow_html=True)
+                
+                if st.button(f"Ver", key=f"gainer_{i}_{market_type}", use_container_width=True):
+                    st.session_state.current_symbol = gainer['symbol']
+                    st.rerun()
+                
+                st.divider()
+        except Exception as e:
+            st.error(f"Error cargando ganadores: {e}")
+    
+    with filter_tab3:
+        # Top Perdedores
+        try:
+            _, losers = get_top_movers(market_type, limit=20)
+            
+            st.markdown("### 📉 Top 20 Perdedores 24h")
+            
+            if not losers:
+                st.info("No se pudieron cargar los perdedores")
+                return
+            
+            for i, loser in enumerate(losers, 1):
+                col1, col2, col3 = st.columns([1, 3, 2])
+                
+                with col1:
+                    st.markdown(f"**#{i}**")
+                
+                with col2:
+                    symbol_display = loser['symbol'].replace('USDT', '')
+                    st.markdown(f"**{symbol_display}**")
+                    price_display = f"${loser['price']:,.4f}" if loser['price'] < 1 else f"${loser['price']:,.2f}"
+                    st.markdown(f"<span class='price-negative'>{price_display}</span>", 
+                              unsafe_allow_html=True)
+                
+                with col3:
+                    st.markdown(f"<span class='price-negative'>{loser['change_24h']:.2f}%</span>", 
+                              unsafe_allow_html=True)
+                
+                if st.button(f"Ver", key=f"loser_{i}_{market_type}", use_container_width=True):
+                    st.session_state.current_symbol = loser['symbol']
+                    st.rerun()
+                
+                st.divider()
+        except Exception as e:
+            st.error(f"Error cargando perdedores: {e}")
+
+
+
+
+def setup_auto_refresh():
+    """Configura auto-refresh para actualización en tiempo real"""
+    if 'auto_refresh_enabled' not in st.session_state:
+        st.session_state.auto_refresh_enabled = False
+    
+    if 'refresh_interval' not in st.session_state:
+        st.session_state.refresh_interval = 5  # segundos
+
+
 
 def display_technical_indicators(technical_analysis, symbol):
     """Muestra panel de indicadores técnicos"""
@@ -1162,11 +1414,64 @@ def display_ai_comparison():
         except Exception as e:
             st.error(f"Error mostrando comparación: {e}")
 
+def display_realtime_ticker(symbol, market_type='spot'):
+    """Muestra ticker de precio en tiempo real"""
+    try:
+        # Convertir símbolo si es necesario
+        if market_type == 'spot' and '-USD' in symbol:
+            binance_symbol = symbol.replace('-USD', 'USDT')
+        else:
+            binance_symbol = symbol
+        
+        # Obtener precio en tiempo real
+        ticker_data = get_realtime_price(binance_symbol, market_type)
+        
+        if ticker_data:
+            price = ticker_data.get('price', 0)
+            change_24h = ticker_data.get('change_24h', 0)
+            high_24h = ticker_data.get('high_24h', 0)
+            low_24h = ticker_data.get('low_24h', 0)
+            volume = ticker_data.get('volume_24h', 0)
+            
+            # Determinar color
+            color = "#0ecb81" if change_24h >= 0 else "#f6465d"
+            emoji = "📈" if change_24h >= 0 else "📉"
+            
+            # Formatear precio correctamente
+            price_display = f"${price:,.4f}" if price < 1 else f"${price:,.2f}"
+            high_display = f"${high_24h:,.2f}"
+            low_display = f"${low_24h:,.2f}"
+            
+            # Mostrar ticker
+            st.markdown(f"""
+            <div style='background: #1a1a1a; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid {color};'>
+                <div style='display: flex; justify-content: space-between; align-items: center;'>
+                    <div>
+                        <h2 style='margin: 0; color: #ffffff;'>{symbol.replace('-USD', '').replace('USDT', '')}/USDT</h2>
+                        <p style='margin: 0; color: {color}; font-size: 2em; font-weight: bold;'>{price_display}</p>
+                    </div>
+                    <div style='text-align: right;'>
+                        <p style='margin: 0; color: {color}; font-size: 1.5em;'>{emoji} {change_24h:+.2f}%</p>
+                        <p style='margin: 0.5rem 0; color: #b0b0b0; font-size: 0.9em;'>24h Alto: {high_display}</p>
+                        <p style='margin: 0; color: #b0b0b0; font-size: 0.9em;'>24h Bajo: {low_display}</p>
+                    </div>
+                    <div style='text-align: right;'>
+                        <p style='margin: 0; color: #b0b0b0; font-size: 0.9em;'>Volumen 24h</p>
+                        <p style='margin: 0; color: #ffffff; font-size: 1.2em;'>{volume:,.0f}</p>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        logger.error(f"Error mostrando ticker en tiempo real: {e}")
+
 def main():
-    """Función principal de la aplicación MEJORADA"""
+    """Función principal de la aplicación MEJORADA con auto-refresh"""
     
     # Inicializar estado
     initialize_session_state()
+    setup_auto_refresh()
     
     # Validar configuración
     config_valid = validate_and_show_config()
@@ -1226,7 +1531,6 @@ def main():
             cols = st.columns(len(metrics_data))
             for i, metric in enumerate(metrics_data):
                 with cols[i]:
-                    # Seleccionar emoji según la crypto
                     emoji = "₿" if metric['name'] == 'Bitcoin' else "⟠" if metric['name'] == 'Ethereum' else "◎" if metric['name'] == 'Solana' else "🔷"
                     price_display = f"${metric['price']:,.2f}" if metric['price'] >= 1 else f"${metric['price']:.4f}"
                     
@@ -1236,22 +1540,28 @@ def main():
                         f"{metric['change']:+.2f}%"
                     )
     else:
-        st.warning("⚠️ No se pudieron cargar los precios en tiempo real. Usando datos de demostración.")
+        st.warning("⚠️ No se pudieron cargar los precios en tiempo real.")
     
     # Layout principal: Gráfico y Chat
     col_chart, col_chat = st.columns([2.2, 1])
     
     with col_chart:
-        st.markdown(f"### 📊 Gráfico de {st.session_state.current_symbol.replace('-USD', '')} - {st.session_state.current_timeframe.upper()}")
+        # Mostrar ticker en tiempo real
+        display_realtime_ticker(
+            st.session_state.current_symbol,
+            st.session_state.get('market_type', 'spot')
+        )
+        
+        st.markdown(f"### 📊 Gráfico de {st.session_state.current_symbol.replace('-USD', '').replace('USDT', '')} - {st.session_state.current_timeframe.upper()}")
         
         # Obtener datos del gráfico
         with st.spinner("📈 Cargando datos del gráfico..."):
             chart_data = get_candlestick_data(
-            st.session_state.current_symbol, 
-            st.session_state.current_timeframe, 
-            days=180,
-            market_type=st.session_state.get("market_type", "spot")
-        )
+                st.session_state.current_symbol, 
+                st.session_state.current_timeframe, 
+                days=180,
+                market_type=st.session_state.get("market_type", "spot")
+            )
         
         # Obtener análisis técnico si está habilitado
         technical_analysis = None
@@ -1262,7 +1572,7 @@ def main():
         if not chart_data.empty:
             fig = create_candlestick_chart(
                 chart_data, 
-                st.session_state.current_symbol.replace('-USD', ''),
+                st.session_state.current_symbol.replace('-USD', '').replace('USDT', ''),
                 st.session_state.current_timeframe,
                 technical_analysis
             )
@@ -1315,14 +1625,12 @@ def main():
         for i, chat in enumerate(st.session_state.chat_history):
             if chat["role"] == "ai":
                 if chat.get("provider") == "system":
-                    # Mensaje inicial de bienvenida
                     chat_html += f"""
                     <div class="chat-message ai-message system-message">
                         <div class="message-content">{chat["message"]}</div>
                     </div>
                     """
                 else:
-                    # Mensaje normal de IA
                     provider_name = chat.get("provider", st.session_state.selected_ai or "IA")
                     ai_names = {
                         'claude': '🧠 Claude',
@@ -1340,7 +1648,6 @@ def main():
                     </div>
                     """
             elif chat["role"] == "user":
-                # Mensajes del usuario
                 chat_html += f"""
                 <div class="chat-message user-message">
                     <div class="message-content">
@@ -1378,27 +1685,22 @@ def main():
             
             for example in example_queries:
                 if st.button(f"📝 {example}", key=f"example_{example[:15]}", use_container_width=True):
-                    # Procesar directamente la consulta
                     if st.session_state.selected_ai and config_loaded:
-                        # Agregar mensaje del usuario
                         st.session_state.chat_history.append({
                             "role": "user", 
                             "message": example
                         })
-                        st.session_state.pending_user_input = example
-                        # Obtener análisis adicionales si están habilitados
+                        
                         sentiment_data = None
                         if st.session_state.show_sentiment_analysis and utils_loaded:
                             sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
                         
-                        # Preparar contexto del mercado MEJORADO
                         market_summary = create_market_summary_enhanced(
                             prices_data, fear_greed_data, market_data, 
                             technical_analysis, sentiment_data, 
                             st.session_state.current_symbol
                         )
                         
-                        # Generar respuesta de IA
                         try:
                             ai_response = analyze_market(
                                 example, 
@@ -1441,27 +1743,22 @@ def main():
                 if not st.session_state.selected_ai or not config_loaded:
                     st.error("❌ No hay IAs disponibles. Configura al menos una API key.")
                 else:
-                    # Agregar mensaje del usuario
                     st.session_state.chat_history.append({
                         "role": "user", 
                         "message": user_input.strip() 
                     })
-                    st.session_state.pending_user_input = user_input.strip()
                     
-                    # Obtener análisis adicionales si están habilitados
                     sentiment_data = None
                     if st.session_state.show_sentiment_analysis and utils_loaded:
                         with st.spinner("📰 Analizando sentiment..."):
                             sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
                     
-                    # Preparar contexto del mercado MEJORADO
                     market_summary = create_market_summary_enhanced(
                         prices_data, fear_greed_data, market_data, 
                         technical_analysis, sentiment_data, 
                         st.session_state.current_symbol
                     )
                     
-                    # Generar respuesta de IA
                     with st.spinner(f"🤔 {st.session_state.selected_ai.title()} está analizando..."):
                         try:
                             ai_response = analyze_market(
@@ -1494,7 +1791,7 @@ def main():
     
     # NUEVA SECCIÓN: Mostrar análisis técnico si está habilitado
     if st.session_state.show_technical_analysis and technical_analysis and utils_loaded:
-        display_technical_indicators(technical_analysis, st.session_state.current_symbol.replace('-USD', ''))
+        display_technical_indicators(technical_analysis, st.session_state.current_symbol.replace('-USD', '').replace('USDT', ''))
     
     # NUEVA SECCIÓN: Mostrar análisis de sentiment si está habilitado
     if st.session_state.show_sentiment_analysis and utils_loaded:
@@ -1557,13 +1854,12 @@ def main():
                 fear_value = int(fear_greed_data['value'])
                 fear_classification = fear_greed_data['value_classification']
                 
-                # Determinar color del delta basado en el valor
                 if fear_value <= 25:
-                    delta_color = "inverse"  # Extremo miedo
+                    delta_color = "inverse"
                 elif fear_value >= 75:
-                    delta_color = "normal"  # Extrema codicia
+                    delta_color = "normal"
                 else:
-                    delta_color = "off"  # Neutral
+                    delta_color = "off"
                 
                 st.metric(
                     "😨 Fear & Greed",
@@ -1579,12 +1875,11 @@ def main():
     st.markdown("---")
     st.markdown("### 🎯 Análisis Rápido del Mercado")
     
-    analysis_cols = st.columns(4)  # Cambiado de 3 a 4 columnas
+    analysis_cols = st.columns(4)
     
     with analysis_cols[0]:
         if st.button("🚀 Análisis General", use_container_width=True):
             if st.session_state.selected_ai and config_loaded:
-                # Obtener análisis adicionales
                 sentiment_data = None
                 if st.session_state.show_sentiment_analysis and utils_loaded:
                     sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
@@ -1595,7 +1890,6 @@ def main():
                     st.session_state.current_symbol
                 )
                 
-                # Prompt específico para análisis general
                 general_prompt = f"""Como analista senior, dame un análisis completo del mercado crypto actual.
 
 DATOS DEL MERCADO:
@@ -1643,7 +1937,6 @@ Respuesta en español, formato markdown, máximo 600 palabras."""
     with analysis_cols[1]:
         if st.button("⚖️ Gestión de Riesgo", use_container_width=True):
             if st.session_state.selected_ai and config_loaded:
-                # Obtener análisis adicionales
                 sentiment_data = None
                 if st.session_state.show_sentiment_analysis and utils_loaded:
                     sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
@@ -1654,7 +1947,6 @@ Respuesta en español, formato markdown, máximo 600 palabras."""
                     st.session_state.current_symbol
                 )
                 
-                # Prompt específico para gestión de riesgo
                 risk_prompt = f"""Como especialista en gestión de riesgo para crypto trading, necesito recomendaciones específicas.
 
 CONTEXTO ACTUAL:
@@ -1702,7 +1994,6 @@ Incluye ejemplos numéricos prácticos. Respuesta en español, formato markdown.
     with analysis_cols[2]:
         if st.button("🎯 Puntos de Entrada", use_container_width=True):
             if st.session_state.selected_ai and config_loaded:
-                # Obtener análisis adicionales
                 sentiment_data = None
                 if st.session_state.show_sentiment_analysis and utils_loaded:
                     sentiment_data = get_sentiment_analysis(st.session_state.current_symbol)
@@ -1713,7 +2004,6 @@ Incluye ejemplos numéricos prácticos. Respuesta en español, formato markdown.
                     st.session_state.current_symbol
                 )
                 
-                # Prompt específico para puntos de entrada con análisis técnico
                 technical_info = ""
                 if technical_analysis:
                     levels = technical_analysis.get('levels', {})
@@ -1735,13 +2025,13 @@ PRECIOS ACTUALES:
 - ETH: ${prices_data['ethereum']['usd']:,.2f} ({prices_data['ethereum']['usd_24h_change']:+.2f}%)
 - SOL: ${prices_data['solana']['usd']:.2f} ({prices_data['solana']['usd_24h_change']:+.2f}%)
 
-ASSET PRINCIPAL: {st.session_state.current_symbol.replace('-USD', '')}
+ASSET PRINCIPAL: {st.session_state.current_symbol.replace('-USD', '').replace('USDT', '')}
 TIMEFRAME: {st.session_state.current_timeframe}
 
 {technical_info}
 
 ANÁLISIS REQUERIDO:
-1. Niveles de entrada específicos para {st.session_state.current_symbol.replace('-USD', '')}
+1. Niveles de entrada específicos para {st.session_state.current_symbol.replace('-USD', '').replace('USDT', '')}
 2. Confirmaciones técnicas necesarias antes de entrar
 3. Múltiples timeframes (1h, 4h, 1d) para confluencia
 4. Volumen y momentum requeridos
@@ -1761,7 +2051,7 @@ Incluye niveles de precio exactos y condiciones específicas. Respuesta técnica
                         
                         st.session_state.chat_history.append({
                             "role": "user",
-                            "message": f"🎯 Puntos de Entrada para {st.session_state.current_symbol.replace('-USD', '')}"
+                            "message": f"🎯 Puntos de Entrada para {st.session_state.current_symbol.replace('-USD', '').replace('USDT', '')}"
                         })
                         
                         st.session_state.chat_history.append({
@@ -1776,11 +2066,9 @@ Incluye niveles de precio exactos y condiciones específicas. Respuesta técnica
             else:
                 st.error("❌ No hay IAs disponibles")
     
-    # NUEVA COLUMNA: Análisis de Sentiment
     with analysis_cols[3]:
         if st.button("📰 Análisis Sentiment", use_container_width=True):
             if st.session_state.selected_ai and config_loaded:
-                # Obtener análisis de sentiment
                 sentiment_data = None
                 if utils_loaded:
                     with st.spinner("📰 Obteniendo noticias..."):
@@ -1792,7 +2080,6 @@ Incluye niveles de precio exactos y condiciones específicas. Respuesta técnica
                     st.session_state.current_symbol
                 )
                 
-                # Prompt específico para análisis de sentiment
                 sentiment_info = ""
                 if sentiment_data:
                     aggregated = sentiment_data.get('aggregated', {})
@@ -1853,12 +2140,26 @@ Enfócate en cómo usar el sentiment para tomar mejores decisiones de trading. R
             else:
                 st.error("❌ No hay IAs disponibles")
     
-    # Footer con información actualizada
+    # IMPLEMENTAR AUTO-REFRESH
+    if st.session_state.get('auto_refresh_enabled', False):
+        import time
+        
+        status_placeholder = st.empty()
+        refresh_interval = st.session_state.get('refresh_interval', 5)
+        
+        # Contador regresivo
+        for remaining in range(refresh_interval, 0, -1):
+            status_placeholder.info(f"🔄 Próxima actualización en {remaining} segundos...")
+            time.sleep(1)
+        
+        status_placeholder.empty()
+        st.rerun()
+        
     st.markdown("---")
     st.markdown(f"""
     <div style='text-align: center; color: #64748b; padding: 1.5rem;'>
-        <strong>📈 Trading Assistant Pro v2.1</strong> • Desarrollado con Python & Streamlit<br>
-        🤖 Powered by Claude, GPT-4 & Gemini • 📊 Datos en tiempo real • 🔧 Análisis técnico avanzado<br>
+        <strong>📈 Trading Assistant Pro v2.2</strong> • Estilo Binance<br>
+        🤖 Powered by Claude, GPT-4 & Gemini • 📊 Todos los pares Binance Spot/Futures<br>
         {"✅" if utils_loaded else "❌"} <small>Indicadores técnicos • Análisis de sentiment • Gestión de riesgo</small><br>
         <small>⚠️ <em>Este análisis es solo educativo y no constituye consejo financiero. Siempre haz tu propia investigación (DYOR).</em></small>
     </div>
@@ -1872,11 +2173,14 @@ Enfócate en cómo usar el sentiment para tomar mejores decisiones de trading. R
                     "Session State": {
                         "Current Symbol": st.session_state.current_symbol,
                         "Timeframe": st.session_state.current_timeframe, 
+                        "Market Type": st.session_state.get('market_type', 'spot'),
                         "Selected AI": st.session_state.selected_ai,
                         "Chat History Length": len(st.session_state.chat_history),
                         "Show AI Comparison": st.session_state.show_ai_comparison,
                         "Technical Analysis Enabled": st.session_state.show_technical_analysis,
-                        "Sentiment Analysis Enabled": st.session_state.show_sentiment_analysis
+                        "Sentiment Analysis Enabled": st.session_state.show_sentiment_analysis,
+                        "Auto Refresh Enabled": st.session_state.get('auto_refresh_enabled', False),
+                        "Refresh Interval": st.session_state.get('refresh_interval', 5)
                     },
                     "Market Data Status": {
                         "Prices Data": bool(prices_data),
@@ -1895,6 +2199,7 @@ Enfócate en cómo usar el sentiment para tomar mejores decisiones de trading. R
                 st.json(debug_info)
             except Exception as e:
                 st.error(f"Error en debug info: {e}")
+    
 
 # Funciones adicionales para compatibilidad
 def safe_import_check():
